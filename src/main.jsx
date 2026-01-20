@@ -114,7 +114,8 @@ const App = () => {
   const handleTitleClick = () => {
     setClickCount(prev => {
       const next = prev + 1;
-      if (next >= 5) { setDevMode(!d => !d); return 0; }
+      // 修复处：删除了这里多余的感叹号 !d => !d 改为 d => !d
+      if (next >= 5) { setDevMode(d => !d); return 0; }
       return next;
     });
   };
