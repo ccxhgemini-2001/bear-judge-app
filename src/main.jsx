@@ -6,32 +6,34 @@ import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus
 
 /**
  * --- 生产环境标准配置 (Vercel 专供) ---
- * 【警告：请勿为了消除预览窗口的报错而修改此处代码】
- * 此处的 import.meta.env 必须保持静态书写，Vercel 在构建时会将其替换为真实密钥。
- * 如果改为动态读取，App 部署后将会白屏。
+ * 【重要：请勿改动 import.meta.env 的字面量写法】
+ * Vite 在构建时需要这种静态字符串进行密钥替换。
+ * 右侧预览窗口的 es2015 警告不会影响 Vercel 的最终上线，请直接忽略嗷。
  */
 const safeParse = (val) => {
   if (!val) return null;
   try { return typeof val === 'string' ? JSON.parse(val) : val; } catch (e) { return null; }
 };
 
-// 1. 获取 Firebase 配置 (优先读取预览变量，否则使用 Vercel 注入的环境变量)
-const firebaseConfigRaw = (typeof window !== 'undefined' && window.__firebase_config)
-  ? window.__firebase_config
-  : import.meta.env.VITE_FIREBASE_CONFIG;
+// 1. 获取配置：优先使用预览变量，保证 Canvas 预览不白屏；fallback 到 import.meta 保证 Vercel 上线可用
+const getFirebaseConfig = () => {
+  if (typeof window !== 'undefined' && window.__firebase_config) return JSON.parse(window.__firebase_config);
+  return safeParse(import.meta.env.VITE_FIREBASE_CONFIG);
+};
 
-const firebaseConfig = safeParse(firebaseConfigRaw);
+const getApiKey = () => {
+  if (typeof window !== 'undefined' && window.__api_key) return window.__api_key;
+  return import.meta.env.VITE_GEMINI_API_KEY || "";
+};
 
-// 2. 获取 AI 密钥
-const apiKey = (typeof window !== 'undefined' && window.__api_key)
-  ? window.__api_key
-  : (import.meta.env.VITE_GEMINI_API_KEY || "");
+const getAppId = () => {
+  if (typeof window !== 'undefined' && window.__app_id) return window.__app_id;
+  return import.meta.env.VITE_APP_ID || 'bear-judge-app-v3';
+};
 
-// 3. 获取 App ID
-const appId = (typeof window !== 'undefined' && window.__app_id)
-  ? window.__app_id
-  : (import.meta.env.VITE_APP_ID || 'bear-judge-app-v3');
-
+const firebaseConfig = getFirebaseConfig();
+const apiKey = getApiKey();
+const appId = getAppId();
 const modelName = "gemini-2.5-flash-preview-09-2025";
 const FIXED_COVER_URL = "/cover.jpg"; 
 
@@ -71,7 +73,7 @@ const App = () => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       if (u) {
-        setInitializing(false); // 关键：只有拿到用户身份才放行进入主界面
+        setInitializing(false); // 只有在用户对象真正就绪后才结束加载
       }
     });
 
@@ -81,12 +83,12 @@ const App = () => {
         if (canvasToken) {
           await signInWithCustomToken(auth, canvasToken);
         } else {
-          // 生产环境进行匿名登录
+          // 生产环境匿名登录
           await signInAnonymously(auth);
         }
       } catch (err) {
         console.error("Auth Error:", err);
-        setError("法庭内勤认证同步失败：请去 Firebase 检查 Anonymous 登录开关是否已开启嗷。");
+        setError("法庭内勤认证同步失败：请检查 Firebase 控制台的匿名登录开关。");
         setInitializing(false);
       }
     };
@@ -104,7 +106,7 @@ const App = () => {
         setCurrentCase(docSnap.data());
       }
     }, (err) => {
-      setError("调取卷宗失败：请检查 Firebase Rules 的权限配置是否包含您的 App ID 嗷。");
+      setError("调取卷宗失败：请检查 Firebase Rules 的权限配置嗷。");
     });
     return () => unsubscribe();
   }, [user, caseId]);
@@ -126,13 +128,14 @@ const App = () => {
 
   const createCase = async (chosenRole) => {
     if (!db || !user) {
-      setError("法庭内勤尚未就绪，熊还在努力连接中，请稍等加载完成后再点嗷！");
+      setError("法庭内勤尚未就绪，熊还在努力连接中，等中间圆圈消失后再试嗷！");
       return;
     }
     setLoading(true);
     setError("");
     const newId = Math.random().toString(36).substring(2, 8).toUpperCase();
     
+    // sideA: 男方, sideB: 女方
     const sideA = chosenRole === 'male' ? { uid: user.uid, content: '', submitted: false } : { uid: null, content: '', submitted: false };
     const sideB = chosenRole === 'female' ? { uid: user.uid, content: '', submitted: false } : { uid: null, content: '', submitted: false };
 
@@ -147,7 +150,7 @@ const App = () => {
       setCaseId(newId);
     } catch (err) {
       console.error(err);
-      setError("卷宗生成失败：请确认数据库规则 (Rules) 已经发布且包含正确的 appId 嗷。");
+      setError("卷宗生成失败：请确认数据库规则已经发布嗷。");
     } finally {
       setLoading(false);
     }
@@ -171,10 +174,10 @@ const App = () => {
         }
         setCaseId(targetId);
       } else {
-        setError("熊没能在档案库里找到这个案卷号，请仔细核对检索码嗷。");
+        setError("熊没能在档案库里找到这个案卷号，请仔细核对。");
       }
     } catch (err) {
-      setError("法庭大门现在有点挤，熊没挤进去，请稍后再试嗷。");
+      setError("法庭大门现在有点挤，请稍后再试嗷。");
     } finally {
       setLoading(false);
     }
@@ -191,7 +194,7 @@ const App = () => {
       });
       setTempInput('');
     } catch (err) {
-      setError("辩词归档失败，请检查您的网络连接嗷。");
+      setError("辩词归档失败，请检查网络。");
     } finally {
       setLoading(false);
     }
@@ -199,7 +202,7 @@ const App = () => {
 
   const triggerAIJudge = async () => {
     if (!currentCase || !apiKey) {
-      setError("AI 宣判核心尚未联通，请检查 VITE_GEMINI_API_KEY 是否设置。");
+      setError("AI 宣判核心尚未联通。");
       return;
     }
     setLoading(true);
@@ -240,10 +243,10 @@ const App = () => {
     return (
       <div className="min-h-screen bg-[#FFFDFB] flex flex-col items-center justify-center text-[#8D6E63] p-10 text-center">
         <RefreshCw className="animate-spin mb-6 text-amber-600" size={48} />
-        <p className="font-black text-xl mb-2 animate-pulse">正在连接轻松熊王国神圣最高法庭...</p>
-        <p className="text-xs text-[#A1887F] mt-4 leading-relaxed">
+        <p className="font-black text-xl mb-2 animate-pulse">正在连接神圣最高法庭...</p>
+        <p className="text-xs text-[#A1887F] mt-4 leading-relaxed font-medium">
           正在为您同步王国通讯密钥，如果长时间卡在此处，<br/>
-          请检查 Vercel 环境变量并执行 Redeploy 嗷～
+          请检查 Vercel 环境变量设置嗷～
         </p>
       </div>
     );
@@ -306,6 +309,7 @@ const App = () => {
                   </div>
                 ) : (
                   <><button onClick={() => setShowRoleSelect(true)} className="w-full bg-[#8D6E63] text-white py-5 rounded-[2rem] font-black text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"><UserPlus size={22}/> 发起新诉讼</button>
+                    {/* 手机端布局优化：确保调取按钮在窄屏下可见 */}
                     <div className="flex gap-2 mt-4 items-stretch h-14">
                       <input 
                         placeholder="输入卷宗码" 
@@ -326,6 +330,7 @@ const App = () => {
           </div>
         ) : (
           <div className="space-y-6 animate-in fade-in duration-500">
+            {/* 案卷检索标识 */}
             <div className="bg-white p-6 rounded-[2.5rem] flex justify-between items-center shadow-md border border-[#F5EBE0]">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-[#FFF8E1] rounded-2xl flex items-center justify-center text-amber-600 border border-amber-100 shadow-sm"><ShieldCheck size={28} /></div>
@@ -363,7 +368,7 @@ const App = () => {
                   <div className="text-center mb-12">
                     <div className="inline-block px-4 py-1 bg-[#FFF8E1] rounded-full text-[10px] font-black text-[#8D6E63] mb-6 border border-amber-100 uppercase tracking-widest font-bold">Kingdom Verdict</div>
                     <h2 className="text-3xl font-black text-[#3E2723] mb-3 leading-tight tracking-tight">📜 {String(verdictData.verdict_title)}</h2>
-                    <p className="text-sm italic bg-[#FDF5E6] py-3 px-6 rounded-2xl inline-block border border-amber-50">“{String(verdictData.law_reference)}”</p>
+                    <p className="text-sm italic bg-[#FDF5E6] py-3 px-6 rounded-2xl inline-block border border-amber-50 text-balance">“{String(verdictData.law_reference)}”</p>
                   </div>
                   <div className="mb-14 bg-[#FDFBF9] p-8 rounded-[2.5rem] border border-[#F5EBE0] shadow-inner">
                     <div className="flex justify-between mb-5 text-[11px] font-black uppercase tracking-widest">
