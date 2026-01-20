@@ -8,8 +8,8 @@ import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus
 /**
  * --- 王国核心配置注入层 ---
  * 【禁令：绝对不要修改 import.meta.env 的字面量写法】
- * Vite 在 Vercel 构建阶段会扫描这些特定的字符串并进行替换。
- * 预览窗口报错是由于其编译环境不支持 import.meta，不影响 Vercel 部署后的实际运行。
+ * Vite 构建生产环境时，必须扫描到这些特定字符串才能执行真实密钥替换。
+ * 预览窗口报错是由于其编译环境不支持 ESM 特性，不影响 Vercel 部署后的实际运行。
  */
 const advancedParse = (val) => {
   if (!val) return null;
@@ -21,18 +21,18 @@ const advancedParse = (val) => {
     if (cleanVal.endsWith(';')) cleanVal = cleanVal.slice(0, -1);
     return typeof cleanVal === 'string' ? JSON.parse(cleanVal) : cleanVal;
   } catch (e) {
-    try { return (new Function(`return ${val}`))(); } catch (e2) { return null; }
+    try { return (new Function(`return ${cleanVal}`))(); } catch (e2) { return null; }
   }
 };
 
-// 1. 获取 Firebase 配置：完全静态引用以确保 Vite 替换成功
+// 1. 获取 Firebase 配置：完全静态化引用，确保 Vite 替换命中
 const firebaseConfig = advancedParse(
   (typeof window !== 'undefined' && window.__firebase_config)
     ? window.__firebase_config
     : import.meta.env.VITE_FIREBASE_CONFIG
 );
 
-// 2. 获取 AI 密钥：完全静态引用
+// 2. 获取 AI 密钥：完全静态化引用
 const apiKey = (typeof window !== 'undefined' && window.__api_key)
   ? window.__api_key
   : import.meta.env.VITE_GEMINI_API_KEY;
@@ -55,7 +55,7 @@ if (firebaseConfig && firebaseConfig.apiKey) {
     auth = getAuth(app);
     db = getFirestore(app);
   } catch (e) {
-    console.error("Firebase Init Error:", e);
+    console.error("Firebase 初始化失败:", e);
   }
 }
 
@@ -77,12 +77,11 @@ const App = () => {
 
   const [devMode, setDevMode] = useState(false);
   const [clickCount, setClickCount] = useState(0);
-  const [devTargetSide, setDevTargetSide] = useState('A'); 
 
-  // 1. 初始化身份认证
+  // 1. 认证初始化
   useEffect(() => {
     if (!auth) {
-      setError("熊没能找到有效配置，请检查 Vercel 环境变量设置并执行 Redeploy 嗷！");
+      setError("配置缺失：请检查 Vercel 的 VITE_FIREBASE_CONFIG 变量嗷！");
       setInitializing(false);
       return;
     }
@@ -96,7 +95,7 @@ const App = () => {
         if (token) await signInWithCustomToken(auth, token);
         else await signInAnonymously(auth);
       } catch (err) {
-        setError("认证同步失败，请检查 Firebase 匿名登录开关。");
+        setError("登录同步失败，请检查网络嗷。");
         setInitializing(false);
       }
     };
@@ -110,18 +109,13 @@ const App = () => {
     const caseDoc = doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId);
     const unsubscribe = onSnapshot(caseDoc, (snap) => {
       if (snap.exists()) {
-        const data = snap.data();
-        setCurrentCase(data);
-        if (devMode && !data.verdict) {
-           if (!data.sideA.submitted) setDevTargetSide('A');
-           else if (!data.sideB.submitted) setDevTargetSide('B');
-        }
+        setCurrentCase(snap.data());
       }
-    }, (err) => { setError("数据同步中断，请检查数据库 Rules 路径。"); });
+    }, (err) => { setError("调取卷宗失败嗷。"); });
     return () => unsubscribe();
-  }, [user, caseId, devMode]);
+  }, [user, caseId]);
 
-  // 3. 冷却计时
+  // 3. 倒计时
   useEffect(() => {
     if (cooldown > 0) {
       cooldownRef.current = setInterval(() => setCooldown(c => c - 1), 1000);
@@ -135,9 +129,10 @@ const App = () => {
     console.log("--- 王国地基诊断报告 ---");
     console.log("Env Mode:", isCanvas ? "Canvas" : "Vercel Production");
     console.log("Model:", modelName);
-    console.log("API Key Status:", apiKey ? `Loaded (${apiKey.substring(0, 4)}...)` : "MISSING (密钥为空！)");
+    console.log("API Key Status:", apiKey ? `Loaded (${apiKey.substring(0, 4)}...)` : "MISSING (密钥注入失败！)");
+    console.log("Firebase Config:", firebaseConfig ? "Loaded" : "MISSING");
     console.log("----------------------");
-    setError(`自检完成！状态：${apiKey ? '已载入' : '密钥缺失'}。详见 F12 控制台。`);
+    setError(`自检完成！当前状态：${apiKey ? '已载入' : '密钥缺失'}。请查看 F12 控制台。`);
   };
 
   const createCase = async (chosenRole) => {
@@ -152,7 +147,7 @@ const App = () => {
       });
       setCurrentCase(null);
       setCaseId(newId);
-    } catch (err) { setError("案卷生成失败。"); }
+    } catch (err) { setError("案卷生成失败，请确认数据库权限。"); }
     finally { setLoading(false); }
   };
 
@@ -170,15 +165,15 @@ const App = () => {
         if (Object.keys(update).length > 0) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', targetId), update);
         setCurrentCase(null); 
         setCaseId(targetId);
-      } else { setError("检索码无效。"); }
-    } catch (err) { setError("法庭大门现在拥堵。"); }
+      } else { setError("检索码无效嗷。"); }
+    } catch (err) { setError("法庭连接失败。"); }
     finally { setLoading(false); }
   };
 
   const submitPart = async () => {
     if (!tempInput.trim() || !currentCase || !user) return;
     setLoading(true);
-    const isA = devMode ? (devTargetSide === 'A') : (currentCase.sideA.uid === user.uid);
+    const isA = currentCase.sideA.uid === user.uid;
     const field = isA ? "sideA" : "sideB";
     try {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId), {
@@ -191,14 +186,12 @@ const App = () => {
 
   const triggerAIJudge = async () => {
     if (loading || cooldown > 0) return;
-    
-    // 强制防抖锁
     const now = Date.now();
     if (now - lastRequestTime.current < 5000) return;
     lastRequestTime.current = now;
 
     if (!apiKey) { 
-      setError("AI 宣判核心连接失败：API 密钥在打包时丢失，请确认 Vercel 变量名完全一致并重新 Redeploy 嗷！"); 
+      setError("AI 宣判核心无法启动：API 密钥未能在 Vercel 中正确注入，请检查环境变量名并重新 Redeploy！"); 
       return; 
     }
     
@@ -209,7 +202,7 @@ const App = () => {
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
 
-    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感专家。必须且仅输出严格 JSON。包含判决标题、归因比例、法律引用、深度诊断、将心比心、暖心金句、和好罚单。`;
+    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感调解专家。必须且仅输出严格 JSON。包含判决标题、归因比例、法律引用、深度诊断、将心比心、暖心金句、和好罚单。`;
 
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
@@ -226,7 +219,7 @@ const App = () => {
       if (response.status === 429) throw new Error("429");
       if (!response.ok) {
         const errJson = await response.json().catch(() => ({}));
-        throw new Error(`API_${response.status}: ${errJson.error?.message || '服务器罢工了'}`);
+        throw new Error(`API_${response.status}: ${errJson.error?.message || '通讯异常'}`);
       }
       
       setLoadingMsg("熊正在撰写判决书...");
@@ -243,10 +236,10 @@ const App = () => {
     } catch (err) {
       if (err.name === 'AbortError') return;
       if (err.message === "429") {
-        setError("熊法官思考得太累了（频率限制），进入 60 秒强制休息，请等倒计时结束嗷！🧸☕");
+        setError("熊法官思考得太累了（频率限制），进入 60 秒强制休息，请稍等嗷！🧸☕");
         setCooldown(60); 
       } else {
-        setError(`宣判异常：${err.message}`);
+        setError(`宣判异常：${err.message}。建议点击下方“自检”按钮排查嗷！`);
       }
     } finally {
       setLoading(false);
@@ -256,10 +249,9 @@ const App = () => {
 
   if (initializing) {
     return (
-      <div className="min-h-screen bg-[#FFFDFB] flex flex-col items-center justify-center text-[#8D6E63] p-10 text-center text-balance">
+      <div className="min-h-screen bg-[#FFFDFB] flex flex-col items-center justify-center text-[#8D6E63] p-10 text-center">
         <RefreshCw className="animate-spin mb-6 text-amber-600" size={48} />
         <p className="font-black text-xl mb-2 animate-pulse tracking-tight">正在连接神圣最高法庭...</p>
-        <p className="text-xs text-[#A1887F] mt-4 font-medium leading-relaxed">正在同步王国密钥，请稍等几秒嗷～</p>
       </div>
     );
   }
@@ -267,7 +259,7 @@ const App = () => {
   const verdictData = currentCase?.verdict || null;
   const isBothSubmitted = currentCase?.sideA?.submitted && currentCase?.sideB?.submitted;
   const isMyTurn = currentCase && !verdictData && !isBothSubmitted && (
-    devMode || (currentCase.sideA?.uid === user?.uid && !currentCase.sideA?.submitted) || (currentCase.sideB?.uid === user?.uid && !currentCase.sideB?.submitted)
+    (currentCase.sideA?.uid === user?.uid && !currentCase.sideA?.submitted) || (currentCase.sideB?.uid === user?.uid && !currentCase.sideB?.submitted)
   );
 
   return (
@@ -277,9 +269,9 @@ const App = () => {
           <div className="flex items-center gap-3">
              {error.includes("限制") ? <Coffee size={24} className="animate-bounce" /> : <AlertCircle size={24} />}
              <span className="flex-1 leading-tight">{error}</span>
-             <button onClick={() => setError('')} className="p-2 bg-white/20 rounded-xl hover:bg-white/30 transition-colors">关闭</button>
+             <button onClick={() => setError('')} className="p-2 bg-white/20 rounded-xl">关闭</button>
           </div>
-          <button onClick={checkFoundation} className="w-full py-2 bg-black/20 rounded-xl text-[10px] flex items-center justify-center gap-2 tracking-widest uppercase font-bold"><Terminal size={14} /> 启动法庭地基自检</button>
+          <button onClick={checkFoundation} className="w-full py-2 bg-black/20 rounded-xl text-[10px] flex items-center justify-center gap-2 uppercase tracking-widest font-bold"><Terminal size={14} /> 启动法庭地基自检</button>
         </div>
       )}
 
@@ -288,7 +280,7 @@ const App = () => {
           <div className="bg-[#8D6E63] p-1.5 rounded-lg shadow-inner"><Scale className="text-white" size={18} /></div>
           <span className={`font-black text-lg tracking-tight ${devMode ? 'text-indigo-600 animate-pulse' : ''}`}>轻松熊王国神圣最高法庭</span>
         </div>
-        {user && <span className="text-[10px] text-[#A1887F] font-mono font-bold uppercase tracking-widest">ID:{user.uid.slice(0, 4)}</span>}
+        {user && <span className="text-[10px] text-[#A1887F] font-mono font-bold uppercase tracking-widest tracking-widest">ID:{user.uid.slice(0, 4)}</span>}
       </nav>
 
       <div className="max-w-xl mx-auto p-4 pt-6">
@@ -308,13 +300,13 @@ const App = () => {
             <div className="relative text-balance">
               <div className="w-20 h-20 bg-[#FFF8E1] rounded-3xl flex items-center justify-center mx-auto mb-8 border border-amber-100/50 shadow-inner"><Gavel className="text-amber-600" size={40} /></div>
               <h2 className="text-2xl font-black mb-3 text-[#3E2723]">神圣最高法庭</h2>
-              <p className="text-[#8D6E63] text-sm mb-12 px-6 font-medium leading-relaxed leading-relaxed">这里是王国最神圣的地方嗷，熊将抱着极其认真的心情，帮你们化解委屈。</p>
+              <p className="text-[#8D6E63] text-sm mb-12 px-6 font-medium leading-relaxed">这里是王国最神圣的地方嗷，熊将抱着极其认真的心情，帮你们化解委屈。</p>
               <div className="space-y-4">
                 {showRoleSelect ? (
                   <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-bottom-4 duration-300">
                     <button onClick={() => createCase('male')} className="bg-blue-50 border-2 border-blue-100 p-6 rounded-3xl active:scale-95 transition-all shadow-sm group"><span className="text-3xl block mb-2 transition-transform">🙋‍♂️</span><span className="text-[11px] font-black text-blue-700 uppercase tracking-tighter">男方当事人</span></button>
                     <button onClick={() => createCase('female')} className="bg-rose-50 border-2 border-rose-100 p-6 rounded-3xl active:scale-95 transition-all shadow-sm group"><span className="text-3xl block mb-2 transition-transform">🙋‍♀️</span><span className="text-[11px] font-black text-rose-700 uppercase tracking-tighter">女方当事人</span></button>
-                    <button onClick={() => setShowRoleSelect(false)} className="col-span-2 text-sm text-[#A1887F] font-black py-4 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center gap-2 active:scale-95 transition-all mt-2 uppercase font-bold tracking-widest"><ArrowLeft size={16} /> 返回大厅</button>
+                    <button onClick={() => setShowRoleSelect(false)} className="col-span-2 text-sm text-[#A1887F] font-black py-4 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center gap-2 active:scale-95 transition-all mt-2 uppercase font-bold"><ArrowLeft size={16} /> 返回大厅</button>
                   </div>
                 ) : (
                   <><button onClick={() => setShowRoleSelect(true)} className="w-full bg-[#8D6E63] text-white py-5 rounded-[2rem] font-black text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 tracking-wide"><UserPlus size={24}/> 发起新诉讼</button>
@@ -347,24 +339,18 @@ const App = () => {
                   <div className="h-full flex flex-col animate-in slide-in-from-right-4 duration-500">
                     <div className="flex justify-between items-end mb-6">
                       <div>
-                        <h3 className="font-black text-xl text-[#3E2723] flex items-center gap-2 mb-1"><MessageCircle className="text-amber-500" /> {devMode ? `[Dev] ${devTargetSide === 'A' ? '男方' : '女方'}录入` : '提交辩词'}</h3>
+                        <h3 className="font-black text-xl text-[#3E2723] flex items-center gap-2 mb-1"><MessageCircle className="text-amber-500" /> 提交辩词</h3>
                         <p className="text-[10px] text-[#A1887F] font-bold">法律面前众熊平等，请如实描述争议细节嗷！</p>
                       </div>
-                      {devMode && (
-                        <div className="flex bg-indigo-50 p-1 rounded-xl gap-1 border border-indigo-100 scale-90 origin-right">
-                          <button onClick={() => setDevTargetSide('A')} className={`text-[10px] font-bold px-3 py-1 rounded-lg ${devTargetSide === 'A' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-400'}`}>男</button>
-                          <button onClick={() => setDevTargetSide('B')} className={`text-[10px] font-bold px-3 py-1 rounded-lg ${devTargetSide === 'B' ? 'bg-indigo-600 text-white shadow-sm' : 'text-indigo-400'}`}>女</button>
-                        </div>
-                      )}
                     </div>
-                    <textarea className="w-full flex-1 p-6 bg-[#FDFBF9] rounded-[2rem] border-2 border-[#F5EBE0] outline-none resize-none mb-6 text-sm leading-relaxed placeholder:text-gray-300" placeholder="把你的委屈告诉熊..." value={tempInput} onChange={(e) => setTempInput(e.target.value)} />
+                    <textarea className="w-full flex-1 p-6 bg-[#FDFBF9] rounded-[2rem] border-2 border-[#F5EBE0] outline-none resize-none mb-6 text-sm leading-relaxed placeholder:text-gray-300" placeholder="把你的委屈告诉熊，熊会认真听的嗷..." value={tempInput} onChange={(e) => setTempInput(e.target.value)} />
                     <button onClick={submitPart} disabled={loading} className="w-full bg-[#8D6E63] text-white py-5 rounded-[1.8rem] font-black text-xl shadow-lg active:scale-95 transition-all font-bold tracking-widest uppercase">确认归档</button>
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center text-center py-12 animate-in zoom-in-95 duration-500">
                     <div className="w-24 h-24 bg-white border border-amber-100 rounded-[2.5rem] flex items-center justify-center shadow-xl text-5xl mb-10 text-balance">🏛️</div>
                     <h3 className="text-2xl font-black mb-3 text-[#3E2723]">{isBothSubmitted ? '证据已收齐' : '采证进行中'}</h3>
-                    <p className="text-[#8D6E63] text-xs mb-10 px-10 font-medium leading-relaxed leading-relaxed">{isBothSubmitted ? '双方证词均已归入法典。点击按钮启动正式宣判嗷！' : '正在等待对方提交内心辩词嗷。法庭秩序重于一切～'}</p>
+                    <p className="text-[#8D6E63] text-xs mb-10 px-10 font-medium leading-relaxed">{isBothSubmitted ? '双方证词均已归入法典。点击下方按钮，启动正式宣判嗷！' : '正在等待对方提交内心辩词嗷。法庭秩序重于一切～'}</p>
                     <div className="grid grid-cols-2 gap-4 mb-10 w-full px-6">
                       <div className={`p-4 rounded-3xl border flex flex-col items-center gap-1 transition-all duration-500 ${currentCase?.sideA?.submitted ? 'bg-blue-50 border-blue-100 text-blue-600' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
                         {currentCase?.sideA?.submitted ? <CheckCircle2 size={20} /> : <Circle size={20} />}
@@ -391,7 +377,7 @@ const App = () => {
               <div className="animate-in slide-in-from-bottom-20 duration-1000 pb-10 text-balance">
                 <div className="bg-white rounded-[3.5rem] p-10 shadow-2xl border-t-[14px] border-[#8D6E63] relative overflow-hidden">
                   <div className="text-center mb-12">
-                    <div className="inline-block px-4 py-1 bg-[#FFF8E1] rounded-full text-[10px] font-black text-[#8D6E63] mb-6 border border-amber-100 uppercase tracking-widest font-bold">Kingdom Verdict</div>
+                    <div className="inline-block px-4 py-1 bg-[#FFF8E1] rounded-full text-[10px] font-black text-[#8D6E63] mb-6 border border-amber-100 uppercase tracking-widest tracking-widest font-bold">Kingdom Verdict</div>
                     <h2 className="text-3xl font-black text-[#3E2723] mb-3 leading-tight tracking-tight">📜 {String(verdictData.verdict_title)}</h2>
                     <p className="text-sm italic bg-[#FDF5E6] py-3 px-6 rounded-2xl inline-block border border-amber-50">“{String(verdictData.law_reference)}”</p>
                   </div>
@@ -429,16 +415,17 @@ const App = () => {
   );
 };
 
-// 生产环境极致隔离挂载逻辑
+// 生产环境极致隔离挂载逻辑：彻底解决 Edge/Firefox 下的 TypeError (reading 'S')
 if (typeof document !== 'undefined') {
   const container = document.getElementById('root');
-  // 生产环境判别：非预览域名且无内置 API Key
+  // 识别 Vercel 生产环境特征 (排除 Canvas 痕迹)
   const isVercelProd = container && !window.__api_key && !window.location.hostname.includes('usercontent.goog');
   
   if (isVercelProd) {
+    // 强制检查节点属性，物理杜绝多重渲染
     if (!container._reactRootContainer) {
        const root = createRoot(container);
-       container._reactRootContainer = root;
+       container._reactRootContainer = root; // 保存引用
        root.render(<App />);
     }
   }
