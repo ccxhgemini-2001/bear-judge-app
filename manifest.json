@@ -1,0 +1,15 @@
+{
+  "name": "小熊 AI 法官",
+  "short_name": "小熊法官",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFF9F2",
+  "theme_color": "#8D6E63",
+  "icons": [
+    {
+      "src": "[https://cdn-icons-png.flaticon.com/512/3069/3069172.png](https://cdn-icons-png.flaticon.com/512/3069/3069172.png)",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
