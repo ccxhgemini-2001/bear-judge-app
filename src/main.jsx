@@ -445,14 +445,18 @@ const App = () => {
 // 生产环境极致隔离挂载逻辑：完全杜绝 Edge/Chrome 双重渲染造成的 TypeError (reading 'S')
 if (typeof document !== 'undefined') {
   const container = document.getElementById('root');
-  // 识别 Vercel 生产环境特征 (排除 Canvas 痕迹)
-  const isVercelProd = container && !window.__api_key && !window.location.hostname.includes('usercontent.goog');
-  
-  if (isVercelProd) {
+
+  if (container) {
+    // 识别 Vercel 生产环境特征（排除 Canvas）
+    const isVercelProd =
+      !window.__api_key &&
+      !window.location.hostname.includes('usercontent.goog');
+
+    // 统一的 Root 单例
     if (!container.__BEAR_JUDGE_ROOT__) {
-       const root = createRoot(container);
-       container.__BEAR_JUDGE_ROOT__ = root; 
-       root.render(<App />);
+      const root = createRoot(container);
+      container.__BEAR_JUDGE_ROOT__ = root;
+      root.render(<App />);
     }
   }
 }
