@@ -6,11 +6,10 @@ import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc } from 'fireba
 import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark, CheckCircle2, Circle, ArrowLeft, Coffee, Timer, Terminal, UserSearch } from 'lucide-react';
 
 /**
- * --- 王国核心配置注入层 ---
- * 【Vercel 生产环境存续关键】
- * Vite 构建阶段必须通过静态字符串扫描来替换密钥。
- * 请彻底忽略预览窗右侧的 "es2015" 或 "import.meta" 警告，那是预览器环境落后导致的。
- * 修改此处的写法将直接导致 Vercel 部署后的版本无法获取 API Key！
+ * --- 王国核心配置注入层 (Vercel Build Hardened) ---
+ * 【构建工程师指令：禁止修改 import.meta.env 写法】
+ * Vite 构建时必须直接看到这些字面量字符串才能执行生产环境替换。
+ * 这里的 typeof 检查是为了防止 Vercel 打包工具在 Node 预扫描阶段崩溃。
  */
 const parseConfig = (val) => {
   if (!val) return null;
@@ -24,17 +23,17 @@ const parseConfig = (val) => {
   }
 };
 
-// 1. 强制静态字面量读取：Vite 打包工具的唯一识别点
-const RAW_FIREBASE = import.meta.env.VITE_FIREBASE_CONFIG;
-const RAW_GEMINI = import.meta.env.VITE_GEMINI_API_KEY;
-const RAW_APP_ID = import.meta.env.VITE_APP_ID;
+// 1. 物理强固：顶层分配字面量。忽略预览窗口 es2015 警告，它是生产部署成功的唯一路径。
+const VITE_FIREBASE = typeof import.meta !== 'undefined' ? import.meta.env.VITE_FIREBASE_CONFIG : "";
+const VITE_GEMINI = typeof import.meta !== 'undefined' ? import.meta.env.VITE_GEMINI_API_KEY : "";
+const VITE_APP_ID = typeof import.meta !== 'undefined' ? import.meta.env.VITE_APP_ID : "";
 
-// 2. 环境优先级判定
-const firebaseConfig = parseConfig(typeof window !== 'undefined' && window.__firebase_config ? window.__firebase_config : RAW_FIREBASE);
-const apiKey = (typeof window !== 'undefined' && window.__api_key) ? window.__api_key : RAW_GEMINI;
-const appId = (typeof window !== 'undefined' && window.__app_id) ? window.__app_id : (RAW_APP_ID || 'bear-judge-app-v3');
+// 2. 环境适配：Canvas 变量优先
+const firebaseConfig = parseConfig(typeof window !== 'undefined' && window.__firebase_config ? window.__firebase_config : VITE_FIREBASE);
+const apiKey = (typeof window !== 'undefined' && window.__api_key) ? window.__api_key : VITE_GEMINI;
+const appId = (typeof window !== 'undefined' && window.__app_id) ? window.__app_id : (VITE_APP_ID || 'bear-judge-app-v3');
 
-// 环境感知与模型设定
+// 环境感知与模型
 const isCanvas = typeof window !== 'undefined' && (!!window.__api_key || window.location.hostname.includes('usercontent.goog'));
 const modelName = isCanvas ? "gemini-2.5-flash-preview-09-2025" : "gemini-1.5-flash";
 const FIXED_COVER_URL = "/cover.jpg"; 
@@ -71,10 +70,10 @@ const App = () => {
   const [clickCount, setClickCount] = useState(0);
   const [devTargetSide, setDevTargetSide] = useState('A'); 
 
-  // 1. 认证初始化 (遵守 RULE 3)
+  // 1. 初始化身份认证
   useEffect(() => {
     if (!auth) {
-      setError("配置缺失：密钥未能正确注入。请在 Vercel 检查变量名并 Redeploy 嗷！");
+      setError("配置缺失：请检查 Vercel 环境变量名并 Redeploy 嗷！");
       setInitializing(false);
       return;
     }
@@ -96,7 +95,7 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // 2. 实时监听案卷 (遵守 RULE 1 & 2)
+  // 2. 实时监听案卷 (包含角色逻辑)
   useEffect(() => {
     if (!user || !caseId || !db) return;
     const caseDoc = doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId);
@@ -109,11 +108,11 @@ const App = () => {
           else if (!data.sideB.submitted) setDevTargetSide('B');
         }
       }
-    }, (err) => { setError("卷宗链路中断。"); });
+    }, (err) => { setError("卷宗链路中断嗷。"); });
     return () => unsubscribe();
   }, [user, caseId, devMode]);
 
-  // 3. 冷却倒计时
+  // 3. 冷却倒计时维护
   useEffect(() => {
     if (cooldown > 0) {
       cooldownRef.current = setInterval(() => setCooldown(c => c - 1), 1000);
@@ -133,10 +132,11 @@ const App = () => {
 
   const checkFoundation = () => {
     console.log("--- 王国地基终审诊断 ---");
-    console.log("Env Mode:", isCanvas ? "Canvas" : "Vercel Production");
+    console.log("Model:", modelName);
     console.log("API Key Status:", apiKey ? `Recognized (${apiKey.substring(0, 4)}...)` : "MISSING!");
+    console.log("Firebase Status:", firebaseConfig ? "Loaded" : "MISSING");
     console.log("------------------------");
-    setError(`自检完成！API 状态：${apiKey ? '已就绪' : '缺失'}。请查看控制台。`);
+    setError(`自检完成！API 状态：${apiKey ? '就绪' : '缺失'}。详见 F12 日志。`);
   };
 
   const createCase = async (chosenRole) => {
@@ -171,8 +171,11 @@ const App = () => {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId), {
         [`${field}.uid`]: user.uid
       });
-    } catch (err) { setError("身份认领失败嗷。"); }
-    finally { setLoading(false); }
+    } catch (err) {
+      setError("身份认领失败。");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const submitPart = async () => {
@@ -185,7 +188,7 @@ const App = () => {
         [`${field}.content`]: tempInput, [`${field}.submitted`]: true
       });
       setTempInput('');
-    } catch (err) { setError("证词归档失败嗷。"); }
+    } catch (err) { setError("证据归档失败嗷。"); }
     finally { setLoading(false); }
   };
 
@@ -196,7 +199,7 @@ const App = () => {
     lastRequestTime.current = now;
 
     if (!apiKey) { 
-      setError("AI 宣判核心无法启动：API 密钥未注入。请务必执行 Vercel Redeploy！"); 
+      setError("AI 宣判核心启动失败：API 密钥未注入。请务必重新 Redeploy 嗷！"); 
       return; 
     }
     
@@ -204,7 +207,7 @@ const App = () => {
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
 
-    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感专家。必须输出严格 JSON。包含标题、比例、诊断、换位思考、金句、罚单。`;
+    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感专家。必须输出严格 JSON 格式。包含标题、比例、诊断、换位思考、金句、罚单。`;
 
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
@@ -219,10 +222,7 @@ const App = () => {
       });
 
       if (response.status === 429) throw new Error("429");
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(`API_${response.status}: ${errJson.error?.message || '通讯异常'}`);
-      }
+      if (!response.ok) throw new Error(`API_${response.status}`);
       
       setLoadingMsg("熊正在撰写判决书...");
       const resData = await response.json();
@@ -235,7 +235,7 @@ const App = () => {
     } catch (err) {
       if (err.name === 'AbortError') return;
       if (err.message === "429") {
-        setError("熊法官思考得太累了（频率限制），进入 60 秒冷静期嗷！🧸☕");
+        setError("熊法官思考得太累了（频率限制），进入 60 秒物理冷静期。");
         setCooldown(60); 
       } else {
         setError(`宣判异常：${err.message}`);
@@ -301,7 +301,7 @@ const App = () => {
             <div className="relative text-balance">
               <div className="w-20 h-20 bg-[#FFF8E1] rounded-3xl flex items-center justify-center mx-auto mb-8 border border-amber-100/50 shadow-inner"><Gavel className="text-amber-600" size={40} /></div>
               <h2 className="text-2xl font-black mb-3 text-[#3E2723]">神圣最高法庭</h2>
-              <p className="text-[#8D6E63] text-sm mb-12 px-6 font-medium leading-relaxed leading-relaxed text-balance">这里是王国最神圣的地方嗷，熊将抱着极其认真的心情，帮你们化解委屈。</p>
+              <p className="text-[#8D6E63] text-sm mb-12 px-6 font-medium leading-relaxed text-balance">这里是王国最神圣的地方嗷，熊将帮你们化解委屈。</p>
               <div className="space-y-4">
                 {showRoleSelect ? (
                   <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-bottom-4 duration-300">
@@ -330,14 +330,14 @@ const App = () => {
             </div>
 
             {!currentCase ? (
-               <div className="bg-white p-20 rounded-[3rem] shadow-xl flex flex-col items-center justify-center text-[#8D6E63] text-balance">
+               <div className="bg-white p-20 rounded-[3rem] shadow-xl flex flex-col items-center justify-center text-[#8D6E63]">
                   <RefreshCw className="animate-spin mb-4" size={32} />
-                  <p className="font-black animate-pulse">正在调取资料...</p>
+                  <p className="font-black animate-pulse">正在调取卷宗资料...</p>
                </div>
             ) : !verdictData ? (
               <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-[#F5EBE0] min-h-[400px] flex flex-col relative overflow-hidden">
                 {!userRole && !devMode ? (
-                  /* 角色认领界面 */
+                  /* 角色认领界面：补全异地加入逻辑 */
                   <div className="flex-1 flex flex-col items-center justify-center text-center animate-in zoom-in-95 duration-500">
                     <div className="w-20 h-20 bg-amber-50 rounded-3xl flex items-center justify-center mb-6 text-amber-600 shadow-inner"><UserSearch size={40}/></div>
                     <h3 className="text-xl font-black mb-2">请认领当事人身份</h3>
@@ -361,6 +361,7 @@ const App = () => {
                         <p className="text-[10px] text-[#A1887F] font-bold uppercase tracking-tighter">法律面前众熊平等，请如实描述争议细节嗷！</p>
                       </div>
                       {devMode && (
+                        /* 开发者模式性别切换按钮 */
                         <div className="flex bg-indigo-50 p-1 rounded-xl gap-1 border border-indigo-100 scale-90 origin-right shadow-sm">
                           <button onClick={() => setDevTargetSide('A')} className={`text-[10px] font-black px-3 py-1 rounded-lg transition-colors ${devTargetSide === 'A' ? 'bg-indigo-600 text-white' : 'text-indigo-400'}`}>男方</button>
                           <button onClick={() => setDevTargetSide('B')} className={`text-[10px] font-black px-3 py-1 rounded-lg transition-colors ${devTargetSide === 'B' ? 'bg-indigo-600 text-white' : 'text-indigo-400'}`}>女方</button>
@@ -375,7 +376,7 @@ const App = () => {
                     <div className="w-24 h-24 bg-white border border-amber-100 rounded-[2.5rem] flex items-center justify-center shadow-xl text-5xl mb-10 text-balance">🏛️</div>
                     <h3 className="text-2xl font-black mb-3 text-[#3E2723]">{isBothSubmitted ? '证据已收齐' : '采证进行中'}</h3>
                     <p className="text-[#8D6E63] text-xs mb-10 px-10 leading-relaxed leading-relaxed text-balance">{isBothSubmitted ? '双方证词均已归入法典。点击启动宣判！' : '等待对方提交证词。法庭秩序重于一切～'}</p>
-                    <div className="grid grid-cols-2 gap-4 mb-10 w-full px-6 text-balance">
+                    <div className="grid grid-cols-2 gap-4 mb-10 w-full px-6">
                       <div className={`p-4 rounded-3xl border flex flex-col items-center gap-1 transition-all duration-500 ${currentCase?.sideA?.submitted ? 'bg-blue-50 border-blue-100 text-blue-600' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
                         {currentCase?.sideA?.submitted ? <CheckCircle2 size={20} /> : <Circle size={20} />}
                         <span className="text-[10px] font-black uppercase tracking-tighter font-bold">男方证词{currentCase?.sideA?.submitted ? '已就绪' : '待录入'}</span>
@@ -389,7 +390,7 @@ const App = () => {
                       <div className="w-full max-w-sm px-6">
                         <button onClick={triggerAIJudge} disabled={loading || cooldown > 0} className={`w-full py-6 rounded-full font-black text-2xl shadow-2xl flex items-center justify-center gap-4 transition-all ${cooldown > 0 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-[#D84315] text-white hover:bg-[#BF360C] animate-pulse active:scale-95'}`}>
                           {loading ? <RefreshCw className="animate-spin" /> : (cooldown > 0 ? <Timer size={32} /> : <Gavel size={32} />)} 
-                          {cooldown > 0 ? `强制休息 (${cooldown}s)` : '开庭宣判！'}
+                          {cooldown > 0 ? `冷却中 (${cooldown}s)` : '开庭宣判！'}
                         </button>
                         {loading && <p className="text-xs text-[#BF360C] font-black mt-4 animate-bounce">{loadingMsg}</p>}
                       </div>
@@ -421,7 +422,7 @@ const App = () => {
                     <div className="bg-indigo-50/50 p-8 rounded-[2.5rem] text-center italic text-sm text-indigo-900/70 font-black leading-relaxed font-bold">“{String(verdictData.bear_wisdom)}”</div>
                   </div>
                   <div className="mt-16 pt-12 border-t-4 border-double border-[#F5EBE0]">
-                    <h3 className="text-center font-black text-[#8D6E63] text-2xl mb-10 uppercase tracking-widest leading-none font-bold tracking-widest font-bold">和好罚单执行</h3>
+                    <h3 className="text-center font-black text-[#8D6E63] text-2xl mb-10 uppercase tracking-widest leading-none font-bold">和好罚单执行</h3>
                     <div className="grid grid-cols-1 gap-4 font-bold">
                       {(verdictData.punishments || []).map((p, i) => (
                         <div key={i} className="bg-white border-2 border-[#F5EBE0] p-6 rounded-[2rem] text-center text-sm font-black shadow-sm transition-all hover:translate-y-[-2px] active:border-amber-300">{String(p)}</div>
@@ -439,16 +440,17 @@ const App = () => {
   );
 };
 
-// 生产环境单例挂载：杜绝双重渲染崩溃
+// 生产环境极致隔离挂载逻辑：彻底解决 Edge/Chrome 下的 TypeError (reading 'S')
 if (typeof document !== 'undefined') {
   const container = document.getElementById('root');
-  // 仅在 Vercel 生产环境（排除 Canvas 域名）执行
+  // 识别 Vercel 生产环境特征 (排除 Canvas 预览)
   const isVercelProd = container && !window.__api_key && !window.location.hostname.includes('usercontent.goog');
   
   if (isVercelProd) {
+    // 使用全局锁确保 React Root 在整个生命周期内唯一
     if (!window.__BEAR_JUDGE_GLOBAL_ROOT__) {
-       window.__BEAR_JUDGE_GLOBAL_ROOT__ = createRoot(container);
-       window.__BEAR_JUDGE_GLOBAL_ROOT__.render(<App />);
+       window.__BEAR_JUDGE_GLOBAL_ROOT__ = true;
+       createRoot(container).render(<App />);
     }
   }
 }
