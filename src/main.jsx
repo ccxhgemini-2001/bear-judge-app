@@ -6,41 +6,46 @@ import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc } from 'fireba
 import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark } from 'lucide-react';
 
 /**
- * --- 生产环境标准配置 (Vercel 专供) ---
- * 熊提示：此处必须保留 import.meta.env 的字面量写法，否则 Vercel 构建会失效。
- * 为了通过预览环境编译，熊对变量读取逻辑进行了加固。
+ * --- 王国终极配置清洗层 ---
+ * 即使法官大人粘贴时带了 "const firebaseConfig =" 或结尾的分号，
+ * 熊也会自动把它们洗干净，确保初始化成功嗷！
  */
-const safeParse = (val) => {
+const advancedParse = (val) => {
   if (!val) return null;
-  try { return typeof val === 'string' ? JSON.parse(val) : val; } catch (e) { return null; }
-};
-
-// 变量读取层：确保在不同环境下都能生存
-const getFirebaseConfig = () => {
-  if (typeof window !== 'undefined' && window.__firebase_config) return JSON.parse(window.__firebase_config);
   try {
-    // 这种写法是为了在 Vercel 打包时能正确替换密钥
-    return safeParse(import.meta.env.VITE_FIREBASE_CONFIG);
-  } catch (e) { return null; }
+    let cleanVal = val.trim();
+    // 自动清洗：去掉开头的变量声明
+    if (cleanVal.includes('=')) {
+      cleanVal = cleanVal.substring(cleanVal.indexOf('{'), cleanVal.lastIndexOf('}') + 1);
+    }
+    // 自动清洗：去掉结尾的分号
+    if (cleanVal.endsWith(';')) cleanVal = cleanVal.slice(0, -1);
+    
+    // 尝试解析。如果属性名没带双引号，使用这种方式可以容错
+    return typeof cleanVal === 'string' ? JSON.parse(cleanVal) : cleanVal;
+  } catch (e) {
+    // 最后的倔强：如果还是报错，尝试用更宽松的逻辑解析（针对非标准JSON）
+    try {
+      return (new Function(`return ${val}`))();
+    } catch (e2) {
+      console.error("[神圣法庭] JSON 格式实在太乱了，熊洗不动了嗷:", e);
+      return null;
+    }
+  }
 };
 
-const getApiKey = () => {
-  if (typeof window !== 'undefined' && window.__api_key) return window.__api_key;
+// 变量获取：Vercel 优先
+const getVercelEnv = (key, fallback) => {
   try {
-    return import.meta.env.VITE_GEMINI_API_KEY || "";
-  } catch (e) { return ""; }
+    const val = import.meta.env[key];
+    return val || fallback;
+  } catch (e) { return fallback; }
 };
 
-const getAppId = () => {
-  if (typeof window !== 'undefined' && window.__app_id) return window.__app_id;
-  try {
-    return import.meta.env.VITE_APP_ID || 'bear-judge-app-v3';
-  } catch (e) { return 'bear-judge-app-v3'; }
-};
+const firebaseConfig = advancedParse(getVercelEnv('VITE_FIREBASE_CONFIG', window.__firebase_config));
+const apiKey = getVercelEnv('VITE_GEMINI_API_KEY', window.__api_key) || "";
+const appId = getVercelEnv('VITE_APP_ID', window.__app_id) || 'bear-judge-app-v3';
 
-const firebaseConfig = getFirebaseConfig();
-const apiKey = getApiKey();
-const appId = getAppId();
 const modelName = "gemini-2.5-flash-preview-09-2025";
 const FIXED_COVER_URL = "/cover.jpg"; 
 
@@ -69,7 +74,7 @@ const App = () => {
   // 1. 初始化身份认证 (RULE 3)
   useEffect(() => {
     if (!auth) {
-      setError("熊迷路了：未能读取到有效配置，请确认 Vercel 变量设置并执行 Redeploy 嗷！");
+      setError("熊迷路了：未能读取到有效配置，请去 Vercel 检查 VITE_FIREBASE_CONFIG 是否填错嗷！");
       setInitializing(false);
       return;
     }
@@ -88,7 +93,7 @@ const App = () => {
           await signInAnonymously(auth);
         }
       } catch (err) {
-        setError("身份认证同步失败：请检查 Firebase 控制台的匿名登录开关嗷。");
+        setError("身份认证失败：请在 Firebase 开启 Anonymous 登录开关嗷。");
         setInitializing(false);
       }
     };
@@ -106,7 +111,7 @@ const App = () => {
         setCurrentCase(docSnap.data());
       }
     }, (err) => {
-      setError("数据链路中断：请检查 Firebase Rules 的 appId 路径嗷。");
+      setError("调取卷宗失败：请检查 Firebase Rules 的 appId 路径嗷。");
     });
     return () => unsubscribe();
   }, [user, caseId]);
@@ -118,7 +123,7 @@ const App = () => {
 
   const createCase = async (chosenRole) => {
     if (!db || !user) {
-      setError("法庭内勤尚未就绪，熊还在努力连接中，请稍等嗷！");
+      setError("法庭内勤尚未就绪，请稍等嗷！");
       return;
     }
     setLoading(true);
@@ -133,7 +138,7 @@ const App = () => {
         sideA, sideB, verdict: null, createdAt: Date.now()
       });
       setCaseId(newId);
-    } catch (err) { setError("卷宗归档失败，请检查规则嗷。"); }
+    } catch (err) { setError("卷宗归档失败嗷，请检查规则。"); }
     finally { setLoading(false); }
   };
 
@@ -154,7 +159,7 @@ const App = () => {
           await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', targetId), update);
         }
         setCaseId(targetId);
-      } else { setError("熊没找到这个案卷，请检查检索码嗷。"); }
+      } else { setError("熊找不到这个案卷号嗷。"); }
     } catch (err) { setError("进入法庭失败。"); }
     finally { setLoading(false); }
   };
@@ -179,7 +184,7 @@ const App = () => {
     }
     setLoading(true);
     setError("");
-    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感调解专家。这里是轻松熊王国神圣最高法庭。语气极度严肃、专业且充满治愈感。自称必须为“熊”。输出必须是严格JSON格式。`;
+    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感调解专家。这里是轻松熊王国神圣最高法庭。语气极度严肃、专业且充满治愈感。自称必须为“熊”。输出必须是严格JSON。`;
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
         method: 'POST',
@@ -193,7 +198,7 @@ const App = () => {
       const resData = await response.json();
       const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text;
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      const verdict = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
+      const verdict = JSON.parse(jsonMatch[0]);
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId), { verdict, status: 'finished' });
     } catch (err) { setError("宣判逻辑波动，请重试嗷！"); }
     finally { setLoading(false); }
@@ -255,7 +260,7 @@ const App = () => {
                   <><button onClick={() => setShowRoleSelect(true)} className="w-full bg-[#8D6E63] text-white py-5 rounded-[2rem] font-black text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"><UserPlus size={22}/> 发起新诉讼</button>
                     <div className="flex gap-2 mt-4 items-stretch h-14">
                       <input placeholder="卷宗检索码" className="flex-1 min-w-0 p-4 rounded-[1.5rem] bg-[#FDF5E6] border-2 border-transparent outline-none text-center font-black tracking-widest uppercase text-xs" onChange={(e) => setTempInput(e.target.value)} />
-                      <button onClick={() => joinCase(tempInput)} className="flex-shrink-0 bg-white border-2 border-[#8D6E63] text-[#8D6E63] px-6 rounded-[1.5rem] font-black active:bg-[#FDF5E6] text-sm shadow-sm">调取</button>
+                      <button onClick={() => joinCase(tempInput)} className="flex-shrink-0 bg-white border-2 border-[#8D6E63] text-[#8D6E63] px-6 rounded-[1.5rem] font-black active:bg-[#FDF5E6] shadow-sm text-sm">调取</button>
                     </div></>
                 )}
               </div>
@@ -308,9 +313,8 @@ const App = () => {
   );
 };
 
-// --- 关键修正：针对生产环境与预览环境的挂载逻辑 ---
+// 生产环境挂载逻辑
 const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('usercontent.goog') && !window.__initial_auth_token;
-
 if (isProduction) {
   const container = document.getElementById('root');
   if (container && !container._reactRootContainer) {
