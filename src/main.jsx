@@ -3,10 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
-import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark, CheckCircle2, Circle, ArrowLeft } from 'lucide-react';
+import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark, CheckCircle2, Circle, ArrowLeft, Coffee } from 'lucide-react';
 
 /**
  * --- 王国配置清洗层 ---
+ * 请忽略预览窗口的警告，Vercel 构建时需要这些字面量。
  */
 const advancedParse = (val) => {
   if (!val) return null;
@@ -22,14 +23,27 @@ const advancedParse = (val) => {
   }
 };
 
-const getEnv = (viteKey, canvasGlobal) => {
-  if (typeof window !== 'undefined' && window[canvasGlobal]) return window[canvasGlobal];
-  try { return import.meta.env[viteKey]; } catch (e) { return null; }
+const getMetaEnv = (key) => {
+  try {
+    if (key === 'VITE_FIREBASE_CONFIG') return import.meta.env.VITE_FIREBASE_CONFIG;
+    if (key === 'VITE_GEMINI_API_KEY') return import.meta.env.VITE_GEMINI_API_KEY;
+    if (key === 'VITE_APP_ID') return import.meta.env.VITE_APP_ID;
+    return null;
+  } catch (e) { return null; }
 };
 
-const firebaseConfig = advancedParse(getEnv('VITE_FIREBASE_CONFIG', '__firebase_config'));
-const apiKey = getEnv('VITE_GEMINI_API_KEY', '__api_key') || "";
-const appId = getEnv('VITE_APP_ID', '__app_id') || 'bear-judge-app-v3';
+const firebaseConfig = advancedParse(typeof window !== 'undefined' && window.__firebase_config 
+  ? window.__firebase_config 
+  : getMetaEnv('VITE_FIREBASE_CONFIG'));
+
+const apiKey = typeof window !== 'undefined' && window.__api_key 
+  ? window.__api_key 
+  : getMetaEnv('VITE_GEMINI_API_KEY');
+
+const appId = typeof window !== 'undefined' && window.__app_id 
+  ? window.__app_id 
+  : (getMetaEnv('VITE_APP_ID') || 'bear-judge-app-v3');
+
 const modelName = "gemini-2.5-flash-preview-09-2025";
 const FIXED_COVER_URL = "/cover.jpg"; 
 
@@ -48,7 +62,7 @@ const App = () => {
   const [caseId, setCaseId] = useState('');
   const [currentCase, setCurrentCase] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [loadingMsg, setLoadingMsg] = useState(''); // 宣判进度提示
+  const [loadingMsg, setLoadingMsg] = useState(''); 
   const [error, setError] = useState('');
   const [tempInput, setTempInput] = useState('');
   const [showRoleSelect, setShowRoleSelect] = useState(false);
@@ -57,7 +71,6 @@ const App = () => {
   const [clickCount, setClickCount] = useState(0);
   const [devTargetSide, setDevTargetSide] = useState('A'); 
 
-  // 1. 初始化身份认证
   useEffect(() => {
     if (!auth) {
       setError("熊没能读取到有效配置，请去 Vercel 检查环境变量设置嗷！");
@@ -82,7 +95,6 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // 2. 实时监听案卷 (核心防护层)
   useEffect(() => {
     if (!user || !caseId || !db) return;
     const caseDoc = doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId);
@@ -174,23 +186,36 @@ const App = () => {
     }
   };
 
-  // --- 宣判逻辑究极加固 ---
+  const fetchWithRetry = async (url, options, maxRetries = 3) => {
+    let delay = 2000;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await fetchWithTimeout(url, options);
+        if (response.ok) return response;
+        if (response.status === 429) throw new Error("429 (频率受限)");
+        if (i === maxRetries - 1) throw new Error(`HTTP ${response.status}`);
+      } catch (err) {
+        if (err.message.includes("429") || i === maxRetries - 1) throw err;
+      }
+      await new Promise(res => setTimeout(res, delay));
+      delay *= 2;
+    }
+  };
+
   const triggerAIJudge = async () => {
     if (!currentCase || !apiKey) { 
-      setError("AI 宣判核心未联网，请检查 Vercel 中的 API Key 设置。"); 
+      setError("AI 宣判核心未联网：请检查 VITE_GEMINI_API_KEY 是否设置。"); 
       return; 
     }
     setLoading(true); 
     setError("");
     setLoadingMsg("熊正在连线 AI 大脑...");
 
-    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感专家。语气极度严肃、专业且充满治愈感。自称必须为“熊”。必须且仅输出严格JSON格式。
+    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感专家。语气严肃专业且治愈，自称“熊”。必须输出严格JSON格式。
     结构：{ "verdict_title": "", "fault_ratio": {"A": 50, "B": 50}, "law_reference": "", "analysis": "", "perspective_taking": "", "bear_wisdom": "", "punishments": [] }`;
 
     try {
-      // 步骤 1: 请求 AI
-      console.log("[王国通讯] 发起 API 请求...");
-      const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+      const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -200,40 +225,31 @@ const App = () => {
         })
       });
 
-      if (!response.ok) throw new Error(`API 通讯异常: ${response.status}`);
-      
       setLoadingMsg("熊正在撰写王国判决书...");
       const resData = await response.json();
       const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!rawText) throw new Error("AI 大脑空转，未返回有效信息。");
-
-      // 步骤 2: 解析 JSON
-      console.log("[王国通讯] 原始数据:", rawText);
-      let cleanJsonStr = rawText;
+      
+      let cleanJsonStr = rawText || "";
       const jsonRegex = /\{[\s\S]*\}/;
       const match = rawText.match(jsonRegex);
       if (match) cleanJsonStr = match[0];
 
-      let verdict;
-      try {
-        verdict = JSON.parse(cleanJsonStr);
-      } catch (e) {
-        console.error("JSON 解析失败:", cleanJsonStr);
-        throw new Error("判决书格式损坏，无法载入法典。");
-      }
+      const verdict = JSON.parse(cleanJsonStr);
 
-      // 步骤 3: 存入数据库
       setLoadingMsg("熊正在将判决存入档案库...");
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId), { 
         verdict, 
         status: 'finished' 
       });
-      
-      console.log("[王国通讯] 宣判完成。");
     } catch (err) {
       console.error("Verdict Error:", err);
-      const errorMsg = err.name === 'AbortError' ? "宣判超时：法官大人想得太久了，请重试嗷！" : `宣判波动：${err.message}，请点击重试嗷！`;
-      setError(errorMsg);
+      if (err.message.includes("429")) {
+        setError("熊法官思考得太累了（API频率限制），请休息 1 分钟后再点开庭嗷！🧸☕");
+      } else if (err.name === 'AbortError') {
+        setError("宣判超时：法官大人想得太久了，请重试催催熊嗷！");
+      } else {
+        setError(`宣判波动：${err.message}，请点击重试嗷！`);
+      }
     } finally {
       setLoading(false);
       setLoadingMsg("");
@@ -261,10 +277,10 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-[#FFFDFB] text-[#4E342E] font-sans pb-10 select-none overflow-x-hidden text-balance">
-      {/* 错误提示置顶（加固显现） */}
       {error && (
         <div className="fixed top-20 left-4 right-4 z-50 p-5 bg-rose-600 text-white rounded-3xl text-sm font-bold shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 duration-300">
-          <AlertCircle size={24} /> <span className="flex-1 leading-tight">{error}</span>
+          {error.includes("429") ? <Coffee size={24} /> : <AlertCircle size={24} />}
+          <span className="flex-1 leading-tight">{error}</span>
           <button onClick={() => setError('')} className="p-2 bg-white/20 rounded-xl">关闭</button>
         </div>
       )}
@@ -293,17 +309,17 @@ const App = () => {
             <div className="absolute top-0 right-0 p-6 opacity-5"><Award size={120} /></div>
             <div className="relative">
               <div className="w-20 h-20 bg-[#FFF8E1] rounded-3xl flex items-center justify-center mx-auto mb-8 border border-amber-100/50 shadow-inner"><Gavel className="text-amber-600" size={40} /></div>
-              <h2 className="text-2xl font-black mb-3">神圣最高法庭</h2>
+              <h2 className="text-2xl font-black mb-3 text-[#3E2723]">神圣最高法庭</h2>
               <p className="text-[#8D6E63] text-sm mb-12 px-6 font-medium leading-relaxed">这里是王国最神圣的地方嗷，熊将抱着极其认真的心情，帮你们化解委屈。</p>
               <div className="space-y-4">
                 {showRoleSelect ? (
                   <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-bottom-4 duration-300">
                     <button onClick={() => createCase('male')} className="bg-blue-50 border-2 border-blue-100 p-6 rounded-3xl active:scale-95 transition-all shadow-sm group">
-                      <span className="text-3xl block mb-2">🙋‍♂️</span>
+                      <span className="text-3xl block mb-2 transition-transform group-hover:scale-110">🙋‍♂️</span>
                       <span className="text-[11px] font-black text-blue-700 uppercase">男方当事人</span>
                     </button>
                     <button onClick={() => createCase('female')} className="bg-rose-50 border-2 border-rose-100 p-6 rounded-3xl active:scale-95 transition-all shadow-sm group">
-                      <span className="text-3xl block mb-2">🙋‍♀️</span>
+                      <span className="text-3xl block mb-2 transition-transform group-hover:scale-110">🙋‍♀️</span>
                       <span className="text-[11px] font-black text-rose-700 uppercase">女方当事人</span>
                     </button>
                     <button onClick={() => setShowRoleSelect(false)} className="col-span-2 text-sm text-[#A1887F] font-black py-4 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center gap-2 active:scale-95 transition-all mt-2">
@@ -435,13 +451,15 @@ const App = () => {
   );
 };
 
-// 生产环境挂载逻辑
-const isProduction = typeof window !== 'undefined' && !window.location.hostname.includes('usercontent.goog') && !window.__initial_auth_token;
-if (isProduction) {
-  const container = document.getElementById('root');
-  if (container && !container._reactRootContainer) {
-    const root = createRoot(container);
-    root.render(<App />);
+// 生产环境挂载逻辑：避开 Canvas 自动加载造成的 TypeError (reading 'S')
+if (typeof document !== 'undefined') {
+  const rootElement = document.getElementById('root');
+  // 通过环境特征判断是否为 Vercel 生产环境
+  if (rootElement && !window.__api_key && !window.location.hostname.includes('usercontent.goog')) {
+    if (!rootElement._reactRootContainer) {
+       const root = createRoot(rootElement);
+       root.render(<App />);
+    }
   }
 }
 
