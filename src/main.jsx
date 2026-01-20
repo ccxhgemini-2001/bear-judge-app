@@ -5,12 +5,11 @@ import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, CheckCircle2, UserPlus as UserSearch } from 'lucide-react';
 
-/* ================================================================
-   🎯 你的 Firebase 配置 (保持不变，这是对的)
-   ================================================================ 
-*/
+/* ========================================================================
+   ✅ 1. 你的真实 Firebase 配置 (已根据你的截图 2222.png 完美录入)
+   ======================================================================== */
 const firebaseConfig = {
-  apiKey: "AIzaSyBSDZfWVm3aWUm1_xlGutijBBHdnMIO1LM",
+  apiKey: "AIzaSyBSDZfWVm3aWUm1_xlgutijBBHdnMIO1LM",
   authDomain: "bear-judge.firebaseapp.com",
   projectId: "bear-judge",
   storageBucket: "bear-judge.firebasestorage.app",
@@ -19,10 +18,9 @@ const firebaseConfig = {
   measurementId: "G-2TPP3CLY3G"
 };
 
-/* ================================================================
-   🗝️ 你的 Gemini API Key (已植入，AI 服务将恢复正常)
-   ================================================================ 
-*/
+/* ========================================================================
+   ✅ 2. 你的 Gemini API Key (已填好)
+   ======================================================================== */
 const GEMINI_API_KEY = "AIzaSyAwAHM6_ME-bxUjxTr2HUmnywUg7sfvOo8"; 
 
 /* --- 环境与常量 --- */
@@ -57,10 +55,10 @@ const App = () => {
   const cooldownRef = useRef(null);
   const abortControllerRef = useRef(null);
 
-  // 认证监听 (带重试机制)
+  // 认证监听
   useEffect(() => {
     if (!auth) {
-      setError("Firebase 未启动，请检查代码配置");
+      setError("Firebase 初始化失败，请检查配置");
       setInitializing(false);
       return;
     }
@@ -69,15 +67,16 @@ const App = () => {
       if (u) setInitializing(false);
     });
 
-    // 尝试登录
+    // 自动尝试登录
     const tryLogin = () => {
         signInAnonymously(auth).catch((err) => {
             console.error("Auth Error:", err);
-            // 如果是权限错误，提示用户去控制台检查
-            if (err.code === 'auth/operation-not-allowed') {
-                setError("登录被拒绝！请去 Firebase 控制台 -> Authentication -> Sign-in method 重新开关一次 'Anonymous' 选项并保存！");
+            if (err.code === 'auth/api-key-not-valid') {
+               setError("❌ API Key 依然无效！请确保你的 Firebase 项目没有被删除。");
+            } else if (err.code === 'auth/operation-not-allowed') {
+               setError("❌ 登录未开启：请去 Firebase Console -> Build -> Authentication 重新开启匿名登录！");
             } else {
-                setError(`登录失败 (${err.code})，请刷新重试`);
+               setError(`登录失败 (${err.code})，请刷新重试`);
             }
             setInitializing(false);
         });
@@ -150,10 +149,7 @@ const App = () => {
 
   const triggerAIJudge = async () => {
     if (loading || cooldown > 0) return;
-    
-    // 使用硬编码的 Key，这是最稳的
     const finalKey = GEMINI_API_KEY;
-    
     if (!finalKey) { setError("代码中缺少 API Key"); return; }
     
     setLoading(true); setError(""); setLoadingMsg("🐻 法官正在阅读卷宗 (AI思考中)...");
