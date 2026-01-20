@@ -3,11 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
-import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark, CheckCircle2, Circle, ArrowLeft, Coffee, Timer } from 'lucide-react';
+import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark, CheckCircle2, Circle, ArrowLeft, Coffee, Timer, Terminal } from 'lucide-react';
 
 /**
  * --- 王国配置清洗层 ---
- * 确保密钥读取既能适配 Vercel 生产环境，又不干扰 Canvas 预览。
  */
 const advancedParse = (val) => {
   if (!val) return null;
@@ -32,11 +31,15 @@ const getEnvValue = (key) => {
   }
 };
 
+// 识别环境：Canvas 预览 or Vercel 生产
+const isCanvas = typeof window !== 'undefined' && (!!window.__api_key || window.location.hostname.includes('usercontent.goog'));
+
 const firebaseConfig = advancedParse(getEnvValue('__firebase_config') || getEnvValue('VITE_FIREBASE_CONFIG'));
 const apiKey = getEnvValue('__api_key') || getEnvValue('VITE_GEMINI_API_KEY');
 const appId = getEnvValue('__app_id') || getEnvValue('VITE_APP_ID') || 'bear-judge-app-v3';
 
-const modelName = "gemini-2.5-flash-preview-09-2025";
+// 生产环境使用稳定版 Flash，Canvas 预览使用 2.5
+const modelName = isCanvas ? "gemini-2.5-flash-preview-09-2025" : "gemini-1.5-flash";
 const FIXED_COVER_URL = "/cover.jpg"; 
 
 // 初始化 Firebase 服务
@@ -60,9 +63,9 @@ const App = () => {
   const [tempInput, setTempInput] = useState('');
   const [showRoleSelect, setShowRoleSelect] = useState(false);
   
-  // 429 频率限制相关状态
   const [cooldown, setCooldown] = useState(0);
   const cooldownRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   const [devMode, setDevMode] = useState(false);
   const [clickCount, setClickCount] = useState(0);
@@ -71,7 +74,7 @@ const App = () => {
   // 1. 认证初始化
   useEffect(() => {
     if (!auth) {
-      setError("熊没能找到有效配置，请去 Vercel 检查环境变量并 Redeploy。");
+      setError("熊没能找到有效配置，请去 Vercel 检查环境变量并 Redeploy 嗷！");
       setInitializing(false);
       return;
     }
@@ -85,7 +88,7 @@ const App = () => {
         if (token) await signInWithCustomToken(auth, token);
         else await signInAnonymously(auth);
       } catch (err) {
-        setError("认证同步失败，请检查 Firebase 匿名登录设置。");
+        setError("认证同步失败，请检查匿名登录设置。");
         setInitializing(false);
       }
     };
@@ -112,7 +115,7 @@ const App = () => {
     return () => unsubscribe();
   }, [user, caseId, devMode]);
 
-  // 3. 冷却倒计时维护
+  // 3. 倒计时维护
   useEffect(() => {
     if (cooldown > 0) {
       cooldownRef.current = setInterval(() => {
@@ -130,6 +133,16 @@ const App = () => {
       if (next >= 5) { setDevMode(!devMode); return 0; }
       return next;
     });
+  };
+
+  const checkFoundation = () => {
+    console.log("--- 王国地基自检报告 ---");
+    console.log("App ID:", appId);
+    console.log("API Key (已脱敏):", apiKey ? `${apiKey.slice(0, 5)}***${apiKey.slice(-3)}` : "未配置");
+    console.log("Model In Use:", modelName);
+    console.log("User UID:", user?.uid);
+    console.log("----------------------");
+    setError(`自检完成！请按 F12 在控制台查看诊断详情嗷～模型当前使用：${modelName}`);
   };
 
   const createCase = async (chosenRole) => {
@@ -185,7 +198,6 @@ const App = () => {
    * --- 宣判逻辑：极致稳定化防护 ---
    */
   const triggerAIJudge = async () => {
-    // 物理拦截，防止任何额外请求发出
     if (loading || cooldown > 0) return;
     
     if (!currentCase || !apiKey) { 
@@ -197,15 +209,18 @@ const App = () => {
     setError("");
     setLoadingMsg("熊正在连线 AI 大脑...");
 
+    // 取消上一个可能存在的遗留请求
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+
     const systemPrompt = `你是一位名为“轻松熊法官”的AI情感调解专家。这里是轻松熊王国神圣最高法庭。语气极度严肃、专业且充满治愈感。自称必须为“熊”。必须且仅输出严格 JSON。
     结构示例：{ "verdict_title": "", "fault_ratio": {"A": 50, "B": 50}, "law_reference": "", "analysis": "", "perspective_taking": "", "bear_wisdom": "", "punishments": [] }`;
 
     try {
-      console.log(`[王国通讯] 时间: ${new Date().toLocaleTimeString()} - 宣判请求已发出`);
-      
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: abortControllerRef.current.signal,
         body: JSON.stringify({
           contents: [{ parts: [{ text: `[男陈述]：${currentCase.sideA.content}\n[女陈述]：${currentCase.sideB.content}` }] }],
           systemInstruction: { parts: [{ text: systemPrompt }] },
@@ -213,14 +228,11 @@ const App = () => {
         })
       });
 
-      // 429 拦截：立即进入冷却
-      if (response.status === 429) {
-        throw new Error("429");
-      }
+      if (response.status === 429) throw new Error("429");
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(`API_${response.status}: ${errorData.error?.message || '未知错误'}`);
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(`API_${response.status}: ${errJson.error?.message || '通讯异常'}`);
       }
       
       setLoadingMsg("熊正在撰写判决书...");
@@ -239,14 +251,14 @@ const App = () => {
         verdict, 
         status: 'finished' 
       });
-      console.log(`[王国通讯] 时间: ${new Date().toLocaleTimeString()} - 宣判成功。`);
     } catch (err) {
-      console.error("Verdict Error Details:", err);
+      if (err.name === 'AbortError') return;
+      console.error("Verdict Error:", err);
       if (err.message === "429") {
-        setError("熊法官思考得太累了（频率限制），进入 60 秒强制休息，请稍等嗷！🧸☕");
-        setCooldown(60); // 触发 60 秒物理锁死
+        setError("熊法官思考得太累了（频率限制），进入 60 秒物理冷静期，请稍等嗷！🧸☕");
+        setCooldown(60); 
       } else {
-        setError(`宣判异常：${err.message}，请重试嗷！`);
+        setError(`宣判异常：${err.message}，建议点击下方“自检”按钮排查嗷！`);
       }
     } finally {
       setLoading(false);
@@ -275,12 +287,14 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-[#FFFDFB] text-[#4E342E] font-sans pb-10 select-none overflow-x-hidden text-balance">
-      {/* 增强型报错浮层 */}
       {error && (
-        <div className="fixed top-20 left-4 right-4 z-50 p-5 bg-rose-600 text-white rounded-3xl text-sm font-bold shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 duration-300">
-          {error.includes("频率限制") ? <Coffee size={24} className="animate-bounce" /> : <AlertCircle size={24} />}
-          <span className="flex-1 leading-tight">{error}</span>
-          <button onClick={() => setError('')} className="p-2 bg-white/20 rounded-xl hover:bg-white/30 transition-colors">关闭</button>
+        <div className="fixed top-20 left-4 right-4 z-50 p-5 bg-rose-600 text-white rounded-3xl text-sm font-bold shadow-2xl flex flex-col gap-3 animate-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center gap-3">
+             {error.includes("频率限制") ? <Coffee size={24} className="animate-bounce" /> : <AlertCircle size={24} />}
+             <span className="flex-1 leading-tight">{error}</span>
+             <button onClick={() => setError('')} className="p-2 bg-white/20 rounded-xl">关闭</button>
+          </div>
+          <button onClick={checkFoundation} className="w-full py-2 bg-black/20 rounded-xl text-[10px] flex items-center justify-center gap-2 uppercase tracking-widest"><Terminal size={14} /> 启动法庭地基自检</button>
         </div>
       )}
 
@@ -314,11 +328,11 @@ const App = () => {
                 {showRoleSelect ? (
                   <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-bottom-4 duration-300">
                     <button onClick={() => createCase('male')} className="bg-blue-50 border-2 border-blue-100 p-6 rounded-3xl active:scale-95 transition-all shadow-sm group">
-                      <span className="text-3xl block mb-2 transition-transform group-hover:scale-110">🙋‍♂️</span>
+                      <span className="text-3xl block mb-2">🙋‍♂️</span>
                       <span className="text-[11px] font-black text-blue-700 uppercase">男方当事人</span>
                     </button>
                     <button onClick={() => createCase('female')} className="bg-rose-50 border-2 border-rose-200 p-6 rounded-3xl active:scale-95 transition-all shadow-sm group">
-                      <span className="text-3xl block mb-2 transition-transform group-hover:scale-110">🙋‍♀️</span>
+                      <span className="text-3xl block mb-2">🙋‍♀️</span>
                       <span className="text-[11px] font-black text-rose-700 uppercase">女方当事人</span>
                     </button>
                     <button onClick={() => setShowRoleSelect(false)} className="col-span-2 text-sm text-[#A1887F] font-black py-4 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center gap-2 active:scale-95 transition-all mt-2">
@@ -377,7 +391,7 @@ const App = () => {
                     <div className="w-24 h-24 bg-white border border-amber-100 rounded-[2.5rem] flex items-center justify-center shadow-xl text-5xl mb-10 text-balance">🏛️</div>
                     <h3 className="text-2xl font-black mb-3 text-[#3E2723]">{isBothSubmitted ? '证据已收齐' : '熊正在采证中'}</h3>
                     <p className="text-[#8D6E63] text-xs mb-10 px-10 font-medium leading-relaxed">
-                      {isBothSubmitted ? '双方证词均已归入法典。点击下方按钮，开庭宣判嗷！' : '熊还在等待对方提交内心辩词嗷。法庭秩序重于一切，请耐心等候～'}
+                      {isBothSubmitted ? '双方当事人的证词均已归入法典。点击下方按钮，开庭宣判嗷！' : '熊还在等待对方提交内心辩词嗷。法庭秩序重于一切，请耐心等候～'}
                     </p>
                     <div className="grid grid-cols-2 gap-4 mb-10 w-full px-6">
                       <div className={`p-4 rounded-3xl border flex flex-col items-center gap-1 transition-all duration-500 ${currentCase?.sideA?.submitted ? 'bg-blue-50 border-blue-100 text-blue-600' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
@@ -456,15 +470,16 @@ const App = () => {
   );
 };
 
-// 生产环境挂载逻辑：避开 Canvas 自动加载造成的 TypeError (reading 'S')
+// 生产环境挂载逻辑：彻底隔离 Canvas 自动渲染
 if (typeof document !== 'undefined') {
   const rootElement = document.getElementById('root');
-  // 识别 Vercel 环境特征（非预览域名且无内置 API Key）
-  const isVercelProd = rootElement && !window.__api_key && !window.location.hostname.includes('usercontent.goog');
-  if (isVercelProd && !rootElement._reactRoot) {
-     const root = createRoot(rootElement);
-     rootElement._reactRoot = root;
-     root.render(<App />);
+  // 通过全局标志位物理杜绝双重渲染
+  if (rootElement && !window.__api_key && !window.location.hostname.includes('usercontent.goog')) {
+    if (!window.__BEAR_JUDGE_INITIALIZED__) {
+       window.__BEAR_JUDGE_INITIALIZED__ = true;
+       const root = createRoot(rootElement);
+       root.render(<App />);
+    }
   }
 }
 
