@@ -7,7 +7,6 @@ import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus
 
 /**
  * --- 王国配置清洗层 ---
- * 确保在各种环境下都能正确读取环境变量
  */
 const advancedParse = (val) => {
   if (!val) return null;
@@ -49,11 +48,11 @@ const App = () => {
   const [caseId, setCaseId] = useState('');
   const [currentCase, setCurrentCase] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState(''); // 宣判进度提示
   const [error, setError] = useState('');
   const [tempInput, setTempInput] = useState('');
   const [showRoleSelect, setShowRoleSelect] = useState(false);
   
-  // --- 开发者模式 ---
   const [devMode, setDevMode] = useState(false);
   const [clickCount, setClickCount] = useState(0);
   const [devTargetSide, setDevTargetSide] = useState('A'); 
@@ -61,7 +60,7 @@ const App = () => {
   // 1. 初始化身份认证
   useEffect(() => {
     if (!auth) {
-      setError("熊没能读取到有效配置，请去 Vercel 检查环境变量设置并重新部署嗷！");
+      setError("熊没能读取到有效配置，请去 Vercel 检查环境变量设置嗷！");
       setInitializing(false);
       return;
     }
@@ -125,7 +124,7 @@ const App = () => {
       });
       setCurrentCase(null);
       setCaseId(newId);
-    } catch (err) { setError("案卷生成失败，请确认数据库权限。"); }
+    } catch (err) { setError("案卷生成失败，请确认数据库规则。"); }
     finally { setLoading(false); }
   };
 
@@ -143,8 +142,8 @@ const App = () => {
         if (Object.keys(update).length > 0) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', targetId), update);
         setCurrentCase(null); 
         setCaseId(targetId);
-      } else { setError("检索库中无此卷宗，请核对。"); }
-    } catch (err) { setError("法庭大门现在有点拥堵嗷。"); }
+      } else { setError("检索码错误，档案库里没搜到嗷。"); }
+    } catch (err) { setError("法庭连接失败。"); }
     finally { setLoading(false); }
   };
 
@@ -158,12 +157,11 @@ const App = () => {
         [`${field}.content`]: tempInput, [`${field}.submitted`]: true
       });
       setTempInput('');
-    } catch (err) { setError("证词归档失败，请检查网络。"); }
+    } catch (err) { setError("证词归档失败嗷。"); }
     finally { setLoading(false); }
   };
 
-  // --- 闪电优化：带超时的 Fetch 请求 ---
-  const fetchWithTimeout = async (url, options, timeout = 25000) => {
+  const fetchWithTimeout = async (url, options, timeout = 30000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeout);
     try {
@@ -176,72 +174,69 @@ const App = () => {
     }
   };
 
-  const fetchWithRetry = async (url, options, maxRetries = 3) => {
-    let delay = 1500;
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        console.log(`[王国通讯] 尝试连接 AI 宣判大脑 (${i + 1}/${maxRetries})...`);
-        const response = await fetchWithTimeout(url, options);
-        if (response.ok) return response;
-        if (i === maxRetries - 1) throw new Error(`HTTP 异常: ${response.status}`);
-      } catch (err) {
-        if (i === maxRetries - 1) throw err;
-        console.warn("[王国通讯] 连接波动，准备重新尝试连接...");
-      }
-      await new Promise(res => setTimeout(res, delay));
-      delay *= 1.5;
-    }
-  };
-
-  // --- 闪电优化：宣判逻辑深度加固 ---
+  // --- 宣判逻辑究极加固 ---
   const triggerAIJudge = async () => {
-    if (!currentCase || !apiKey) { setError("AI 宣判核心未联网，请检查环境变量。"); return; }
-    setLoading(true); setError("");
+    if (!currentCase || !apiKey) { 
+      setError("AI 宣判核心未联网，请检查 Vercel 中的 API Key 设置。"); 
+      return; 
+    }
+    setLoading(true); 
+    setError("");
+    setLoadingMsg("熊正在连线 AI 大脑...");
 
-    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感调解专家。这里是轻松熊王国神圣最高法庭。语气极度严肃、专业且充满治愈感。自称必须为“熊”。
-    任务：基于双方证词给出裁决。
-    输出限制：必须仅输出一个合法的 JSON 对象。严禁任何 Markdown 标记。
+    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感专家。语气极度严肃、专业且充满治愈感。自称必须为“熊”。必须且仅输出严格JSON格式。
     结构：{ "verdict_title": "", "fault_ratio": {"A": 50, "B": 50}, "law_reference": "", "analysis": "", "perspective_taking": "", "bear_wisdom": "", "punishments": [] }`;
 
     try {
-      const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+      // 步骤 1: 请求 AI
+      console.log("[王国通讯] 发起 API 请求...");
+      const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: `[男陈述]：${currentCase.sideA.content}\n[女陈述]：${currentCase.sideB.content}` }] }],
           systemInstruction: { parts: [{ text: systemPrompt }] },
-          generationConfig: { 
-            responseMimeType: "application/json",
-            temperature: 0.7 
-          }
+          generationConfig: { responseMimeType: "application/json", temperature: 0.7 }
         })
       });
 
+      if (!response.ok) throw new Error(`API 通讯异常: ${response.status}`);
+      
+      setLoadingMsg("熊正在撰写王国判决书...");
       const resData = await response.json();
       const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!rawText) throw new Error("AI 脑回路短路，未返回内容。");
+      if (!rawText) throw new Error("AI 大脑空转，未返回有效信息。");
 
-      // 强力正则提取 JSON：防止 AI 吐出非标准内容
+      // 步骤 2: 解析 JSON
+      console.log("[王国通讯] 原始数据:", rawText);
       let cleanJsonStr = rawText;
       const jsonRegex = /\{[\s\S]*\}/;
       const match = rawText.match(jsonRegex);
       if (match) cleanJsonStr = match[0];
 
-      console.log("[王国通讯] 判决书已到达，正在解析存证...");
-      const verdict = JSON.parse(cleanJsonStr);
-      
-      // 只有在 Firestore 写入成功后才关闭加载
+      let verdict;
+      try {
+        verdict = JSON.parse(cleanJsonStr);
+      } catch (e) {
+        console.error("JSON 解析失败:", cleanJsonStr);
+        throw new Error("判决书格式损坏，无法载入法典。");
+      }
+
+      // 步骤 3: 存入数据库
+      setLoadingMsg("熊正在将判决存入档案库...");
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId), { 
         verdict, 
         status: 'finished' 
       });
-      console.log("[王国通讯] 结案陈词已载入法典。");
+      
+      console.log("[王国通讯] 宣判完成。");
     } catch (err) {
-      console.error("Verdict Error Details:", err);
-      const msg = err.name === 'AbortError' ? "宣判超时：法官大人想得太久了，请点击重试嗷！" : "宣判异常：数据解析或通讯失败，请点击重试嗷！";
-      setError(msg);
+      console.error("Verdict Error:", err);
+      const errorMsg = err.name === 'AbortError' ? "宣判超时：法官大人想得太久了，请重试嗷！" : `宣判波动：${err.message}，请点击重试嗷！`;
+      setError(errorMsg);
     } finally {
       setLoading(false);
+      setLoadingMsg("");
     }
   };
 
@@ -266,6 +261,14 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-[#FFFDFB] text-[#4E342E] font-sans pb-10 select-none overflow-x-hidden text-balance">
+      {/* 错误提示置顶（加固显现） */}
+      {error && (
+        <div className="fixed top-20 left-4 right-4 z-50 p-5 bg-rose-600 text-white rounded-3xl text-sm font-bold shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 duration-300">
+          <AlertCircle size={24} /> <span className="flex-1 leading-tight">{error}</span>
+          <button onClick={() => setError('')} className="p-2 bg-white/20 rounded-xl">关闭</button>
+        </div>
+      )}
+
       <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-20 p-4 border-b border-[#F5EBE0] flex justify-between items-center px-6 shadow-sm">
         <div className="flex items-center gap-2 cursor-pointer active:scale-95 transition-all" onClick={handleTitleClick}>
           <div className="bg-[#8D6E63] p-1.5 rounded-lg shadow-inner"><Scale className="text-white" size={18} /></div>
@@ -296,11 +299,11 @@ const App = () => {
                 {showRoleSelect ? (
                   <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-bottom-4 duration-300">
                     <button onClick={() => createCase('male')} className="bg-blue-50 border-2 border-blue-100 p-6 rounded-3xl active:scale-95 transition-all shadow-sm group">
-                      <span className="text-3xl block mb-2 transition-transform group-hover:scale-110">🙋‍♂️</span>
+                      <span className="text-3xl block mb-2">🙋‍♂️</span>
                       <span className="text-[11px] font-black text-blue-700 uppercase">男方当事人</span>
                     </button>
                     <button onClick={() => createCase('female')} className="bg-rose-50 border-2 border-rose-100 p-6 rounded-3xl active:scale-95 transition-all shadow-sm group">
-                      <span className="text-3xl block mb-2 transition-transform group-hover:scale-110">🙋‍♀️</span>
+                      <span className="text-3xl block mb-2">🙋‍♀️</span>
                       <span className="text-[11px] font-black text-rose-700 uppercase">女方当事人</span>
                     </button>
                     <button onClick={() => setShowRoleSelect(false)} className="col-span-2 text-sm text-[#A1887F] font-black py-4 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center gap-2 active:scale-95 transition-all mt-2">
@@ -371,7 +374,14 @@ const App = () => {
                         <span className="text-[10px] font-black uppercase tracking-tighter">女方证词{currentCase?.sideB?.submitted ? '已就绪' : '待录入'}</span>
                       </div>
                     </div>
-                    {isBothSubmitted && <button onClick={triggerAIJudge} disabled={loading} className="bg-[#D84315] text-white px-16 py-6 rounded-full font-black text-2xl hover:bg-[#BF360C] shadow-2xl animate-pulse flex items-center gap-4 active:scale-95 transition-all">{loading ? <RefreshCw className="animate-spin" /> : <Gavel size={32} />} 熊要宣判了！</button>}
+                    {isBothSubmitted && (
+                      <div className="w-full max-w-sm px-6">
+                        <button onClick={triggerAIJudge} disabled={loading} className="w-full bg-[#D84315] text-white py-6 rounded-full font-black text-2xl hover:bg-[#BF360C] shadow-2xl animate-pulse flex items-center justify-center gap-4 active:scale-95 transition-all">
+                          {loading ? <RefreshCw className="animate-spin" /> : <Gavel size={32} />} 开庭宣判！
+                        </button>
+                        {loading && <p className="text-xs text-[#BF360C] font-black mt-4 animate-bounce">{loadingMsg}</p>}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -420,7 +430,6 @@ const App = () => {
             )}
           </div>
         )}
-        {error && <div className="mt-8 p-5 bg-rose-50 text-rose-600 rounded-3xl text-[11px] font-bold border border-rose-100 flex items-center gap-3 animate-in fade-in duration-300"><AlertCircle size={20} /> <span className="flex-1 leading-tight font-bold">{error}</span><button onClick={() => setError('')} className="p-2 hover:bg-rose-100 rounded-xl transition-colors">关闭</button></div>}
       </div>
     </div>
   );
