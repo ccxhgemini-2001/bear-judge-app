@@ -10,13 +10,21 @@ import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus
    ================================================================ 
 */
 const firebaseConfig = {
-  apiKey: "AIzaSyBSDZfWVm3aWUm1_xlGutijBBHdnMIO1LM",
+
+  apiKey: "AIzaSyBSDZfWVm3aWUm1_xlgutijBBHdnMIO1LM",
+
   authDomain: "bear-judge.firebaseapp.com",
+
   projectId: "bear-judge",
+
   storageBucket: "bear-judge.firebasestorage.app",
+
   messagingSenderId: "644217782469",
+
   appId: "1:644217782469:web:43bfd2ae572a90a4bbb0ac",
+
   measurementId: "G-2TPP3CLY3G"
+
 };
 
 /* --- 环境与常量 --- */
