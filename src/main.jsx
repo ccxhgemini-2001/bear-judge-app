@@ -6,7 +6,8 @@ import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc } from 'fireba
 import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark, CheckCircle2, Circle, ArrowLeft, Coffee, Timer } from 'lucide-react';
 
 /**
- * --- 王国终极配置清洗层 ---
+ * --- 王国配置清洗层 ---
+ * 确保密钥读取既能适配 Vercel 生产环境，又不干扰 Canvas 预览。
  */
 const advancedParse = (val) => {
   if (!val) return null;
@@ -22,25 +23,18 @@ const advancedParse = (val) => {
   }
 };
 
-// 变量获取：采用更稳固的包装方式减少 es2015 警告
-const getVercelEnv = (key) => {
+const getEnvValue = (key) => {
+  if (typeof window !== 'undefined' && window[key]) return window[key];
   try {
-    const env = import.meta.env;
-    return env ? env[key] : undefined;
-  } catch (e) { return undefined; }
+    return import.meta.env[key];
+  } catch (e) {
+    return undefined;
+  }
 };
 
-const firebaseConfig = advancedParse(typeof window !== 'undefined' && window.__firebase_config 
-  ? window.__firebase_config 
-  : getVercelEnv('VITE_FIREBASE_CONFIG'));
-
-const apiKey = typeof window !== 'undefined' && window.__api_key 
-  ? window.__api_key 
-  : getVercelEnv('VITE_GEMINI_API_KEY');
-
-const appId = typeof window !== 'undefined' && window.__app_id 
-  ? window.__app_id 
-  : (getVercelEnv('VITE_APP_ID') || 'bear-judge-app-v3');
+const firebaseConfig = advancedParse(getEnvValue('__firebase_config') || getEnvValue('VITE_FIREBASE_CONFIG'));
+const apiKey = getEnvValue('__api_key') || getEnvValue('VITE_GEMINI_API_KEY');
+const appId = getEnvValue('__app_id') || getEnvValue('VITE_APP_ID') || 'bear-judge-app-v3';
 
 const modelName = "gemini-2.5-flash-preview-09-2025";
 const FIXED_COVER_URL = "/cover.jpg"; 
@@ -66,18 +60,18 @@ const App = () => {
   const [tempInput, setTempInput] = useState('');
   const [showRoleSelect, setShowRoleSelect] = useState(false);
   
-  // 429 冷却相关
+  // 429 频率限制相关状态
   const [cooldown, setCooldown] = useState(0);
-  const cooldownTimer = useRef(null);
+  const cooldownRef = useRef(null);
 
   const [devMode, setDevMode] = useState(false);
   const [clickCount, setClickCount] = useState(0);
   const [devTargetSide, setDevTargetSide] = useState('A'); 
 
-  // 1. 初始化身份认证
+  // 1. 认证初始化
   useEffect(() => {
     if (!auth) {
-      setError("熊没能读取到有效配置，请检查 Vercel 环境变量并重新部署。");
+      setError("熊没能找到有效配置，请去 Vercel 检查环境变量并 Redeploy。");
       setInitializing(false);
       return;
     }
@@ -87,11 +81,11 @@ const App = () => {
     });
     const initAuth = async () => {
       try {
-        const canvasToken = typeof window !== 'undefined' ? window.__initial_auth_token : null;
-        if (canvasToken) await signInWithCustomToken(auth, canvasToken);
+        const token = typeof window !== 'undefined' ? window.__initial_auth_token : null;
+        if (token) await signInWithCustomToken(auth, token);
         else await signInAnonymously(auth);
       } catch (err) {
-        setError("法庭认证同步失败，请检查 Firebase 配置。");
+        setError("认证同步失败，请检查 Firebase 匿名登录设置。");
         setInitializing(false);
       }
     };
@@ -113,21 +107,21 @@ const App = () => {
         }
       }
     }, (err) => {
-      setError("数据同步中断，请检查数据库规则路径。");
+      setError("调取卷宗失败，请检查数据库 Rules。");
     });
     return () => unsubscribe();
   }, [user, caseId, devMode]);
 
-  // 3. 倒计时逻辑
+  // 3. 冷却倒计时维护
   useEffect(() => {
     if (cooldown > 0) {
-      cooldownTimer.current = setInterval(() => {
-        setCooldown(prev => prev - 1);
+      cooldownRef.current = setInterval(() => {
+        setCooldown(c => c - 1);
       }, 1000);
     } else {
-      clearInterval(cooldownTimer.current);
+      clearInterval(cooldownRef.current);
     }
-    return () => clearInterval(cooldownTimer.current);
+    return () => clearInterval(cooldownRef.current);
   }, [cooldown]);
 
   const handleTitleClick = () => {
@@ -150,7 +144,7 @@ const App = () => {
       });
       setCurrentCase(null);
       setCaseId(newId);
-    } catch (err) { setError("卷宗归档失败嗷。"); }
+    } catch (err) { setError("案卷生成失败。"); }
     finally { setLoading(false); }
   };
 
@@ -169,7 +163,7 @@ const App = () => {
         setCurrentCase(null); 
         setCaseId(targetId);
       } else { setError("检索码无效，请核对。"); }
-    } catch (err) { setError("法庭大门现在拥堵嗷。"); }
+    } catch (err) { setError("法庭连接失败。"); }
     finally { setLoading(false); }
   };
 
@@ -183,17 +177,19 @@ const App = () => {
         [`${field}.content`]: tempInput, [`${field}.submitted`]: true
       });
       setTempInput('');
-    } catch (err) { setError("证词存储失败嗷。"); }
+    } catch (err) { setError("证词归档失败嗷。"); }
     finally { setLoading(false); }
   };
 
   /**
-   * --- 究极请求卫士：防止后台堆叠请求 ---
+   * --- 宣判逻辑：极致稳定化防护 ---
    */
   const triggerAIJudge = async () => {
-    if (loading || cooldown > 0) return; // 频率卫士
+    // 物理拦截，防止任何额外请求发出
+    if (loading || cooldown > 0) return;
+    
     if (!currentCase || !apiKey) { 
-      setError("AI 宣判核心未联网：请检查 API Key 设置嗷！"); 
+      setError("AI 宣判核心未联网：请检查环境变量。"); 
       return; 
     }
     
@@ -201,11 +197,11 @@ const App = () => {
     setError("");
     setLoadingMsg("熊正在连线 AI 大脑...");
 
-    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感专家。语气严肃专业且治愈，自称“熊”。必须输出严格JSON格式。
-    结构：{ "verdict_title": "", "fault_ratio": {"A": 50, "B": 50}, "law_reference": "", "analysis": "", "perspective_taking": "", "bear_wisdom": "", "punishments": [] }`;
+    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感调解专家。这里是轻松熊王国神圣最高法庭。语气极度严肃、专业且充满治愈感。自称必须为“熊”。必须且仅输出严格 JSON。
+    结构示例：{ "verdict_title": "", "fault_ratio": {"A": 50, "B": 50}, "law_reference": "", "analysis": "", "perspective_taking": "", "bear_wisdom": "", "punishments": [] }`;
 
     try {
-      console.log(`[王国通讯] 时间: ${new Date().toLocaleTimeString()} - 正在发送请求...`);
+      console.log(`[王国通讯] 时间: ${new Date().toLocaleTimeString()} - 宣判请求已发出`);
       
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
         method: 'POST',
@@ -217,11 +213,15 @@ const App = () => {
         })
       });
 
+      // 429 拦截：立即进入冷却
       if (response.status === 429) {
         throw new Error("429");
       }
 
-      if (!response.ok) throw new Error(`HTTP_${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`API_${response.status}: ${errorData.error?.message || '未知错误'}`);
+      }
       
       setLoadingMsg("熊正在撰写判决书...");
       const resData = await response.json();
@@ -241,12 +241,12 @@ const App = () => {
       });
       console.log(`[王国通讯] 时间: ${new Date().toLocaleTimeString()} - 宣判成功。`);
     } catch (err) {
-      console.error("Verdict Error:", err);
+      console.error("Verdict Error Details:", err);
       if (err.message === "429") {
-        setError("熊法官思考得太累了（频率限制），进入 60 秒冷却期，请稍后再试嗷！🧸☕");
-        setCooldown(60); // 触发 60 秒强制冷却
+        setError("熊法官思考得太累了（频率限制），进入 60 秒强制休息，请稍等嗷！🧸☕");
+        setCooldown(60); // 触发 60 秒物理锁死
       } else {
-        setError(`宣判波动：${err.message}，请重试。`);
+        setError(`宣判异常：${err.message}，请重试嗷！`);
       }
     } finally {
       setLoading(false);
@@ -275,12 +275,12 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-[#FFFDFB] text-[#4E342E] font-sans pb-10 select-none overflow-x-hidden text-balance">
-      {/* 全局错误显示区 */}
+      {/* 增强型报错浮层 */}
       {error && (
         <div className="fixed top-20 left-4 right-4 z-50 p-5 bg-rose-600 text-white rounded-3xl text-sm font-bold shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4 duration-300">
-          {error.includes("频率限制") ? <Coffee size={24} /> : <AlertCircle size={24} />}
+          {error.includes("频率限制") ? <Coffee size={24} className="animate-bounce" /> : <AlertCircle size={24} />}
           <span className="flex-1 leading-tight">{error}</span>
-          <button onClick={() => setError('')} className="p-2 bg-white/20 rounded-xl">关闭</button>
+          <button onClick={() => setError('')} className="p-2 bg-white/20 rounded-xl hover:bg-white/30 transition-colors">关闭</button>
         </div>
       )}
 
@@ -317,7 +317,7 @@ const App = () => {
                       <span className="text-3xl block mb-2 transition-transform group-hover:scale-110">🙋‍♂️</span>
                       <span className="text-[11px] font-black text-blue-700 uppercase">男方当事人</span>
                     </button>
-                    <button onClick={() => createCase('female')} className="bg-rose-50 border-2 border-rose-100 p-6 rounded-3xl active:scale-95 transition-all shadow-sm group">
+                    <button onClick={() => createCase('female')} className="bg-rose-50 border-2 border-rose-200 p-6 rounded-3xl active:scale-95 transition-all shadow-sm group">
                       <span className="text-3xl block mb-2 transition-transform group-hover:scale-110">🙋‍♀️</span>
                       <span className="text-[11px] font-black text-rose-700 uppercase">女方当事人</span>
                     </button>
@@ -394,13 +394,13 @@ const App = () => {
                         <button 
                           onClick={triggerAIJudge} 
                           disabled={loading || cooldown > 0} 
-                          className={`w-full py-6 rounded-full font-black text-2xl shadow-2xl flex items-center justify-center gap-4 transition-all ${cooldown > 0 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-[#D84315] text-white hover:bg-[#BF360C] animate-pulse active:scale-95'}`}
+                          className={`w-full py-6 rounded-full font-black text-2xl shadow-2xl flex items-center justify-center gap-4 transition-all ${cooldown > 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-[#D84315] text-white hover:bg-[#BF360C] animate-pulse active:scale-95'}`}
                         >
                           {loading ? <RefreshCw className="animate-spin" /> : (cooldown > 0 ? <Timer size={32} /> : <Gavel size={32} />)} 
-                          {cooldown > 0 ? `休息中 (${cooldown}s)` : '开庭宣判！'}
+                          {cooldown > 0 ? `强制冷却 (${cooldown}s)` : '开庭宣判！'}
                         </button>
                         {loading && <p className="text-xs text-[#BF360C] font-black mt-4 animate-bounce">{loadingMsg}</p>}
-                        {cooldown > 0 && <p className="text-[10px] text-gray-400 font-bold mt-4 tracking-tighter italic">熊法官思考得太累了，正在喝咖啡回血，请稍等嗷...</p>}
+                        {cooldown > 0 && <p className="text-[10px] text-gray-400 font-bold mt-4 tracking-tighter italic">熊法官思考得太累了，正在物理断开请求，请休息嗷...</p>}
                       </div>
                     )}
                   </div>
@@ -456,14 +456,15 @@ const App = () => {
   );
 };
 
-// 生产环境挂载逻辑
+// 生产环境挂载逻辑：避开 Canvas 自动加载造成的 TypeError (reading 'S')
 if (typeof document !== 'undefined') {
   const rootElement = document.getElementById('root');
-  if (rootElement && !window.__api_key && !window.location.hostname.includes('usercontent.goog')) {
-    if (!rootElement._reactRootContainer) {
-       const root = createRoot(rootElement);
-       root.render(<App />);
-    }
+  // 识别 Vercel 环境特征（非预览域名且无内置 API Key）
+  const isVercelProd = rootElement && !window.__api_key && !window.location.hostname.includes('usercontent.goog');
+  if (isVercelProd && !rootElement._reactRoot) {
+     const root = createRoot(rootElement);
+     rootElement._reactRoot = root;
+     root.render(<App />);
   }
 }
 
