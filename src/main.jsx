@@ -25,9 +25,10 @@ const parseConfig = (val) => {
 
 // 1. 物理强固：顶层分配静态字面量。
 // 即使预览窗口报 es2015 警告，也必须保留，这是 Vercel 密钥注入的唯一通道。
-const VITE_FIREBASE = import.meta.env.VITE_FIREBASE_CONFIG;
-const VITE_GEMINI = import.meta.env.VITE_GEMINI_API_KEY;
-const VITE_APP_ID = import.meta.env.VITE_APP_ID;
+// 增加 typeof 检查以防止 Vercel 在 Node.js 构建阶段由于不支持 import.meta 而崩溃。
+const VITE_FIREBASE = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env.VITE_FIREBASE_CONFIG : "";
+const VITE_GEMINI = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env.VITE_GEMINI_API_KEY : "";
+const VITE_APP_ID = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env.VITE_APP_ID : "";
 
 const getEnv = (canvasField, vercelValue) => {
   if (typeof window !== 'undefined' && window[canvasField]) return window[canvasField];
@@ -291,8 +292,8 @@ const App = () => {
           <img src={FIXED_COVER_URL} className="w-full h-full object-cover transition-transform duration-700 hover:scale-105" alt="封面" 
                onError={(e) => { e.target.src = "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&q=80&w=1000"; }} />
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
-          <div className="absolute bottom-6 left-8 flex items-end justify-between right-8 text-white font-bold text-balance">
-            <h1 className="font-black text-2xl drop-shadow-lg leading-none tracking-tight tracking-tight">公正 · 治愈 · 爱</h1>
+          <div className="absolute bottom-6 left-8 flex items-end justify-between right-8 text-white font-bold">
+            <h1 className="font-black text-2xl drop-shadow-lg leading-none tracking-tight tracking-tight text-balance">公正 · 治愈 · 爱</h1>
             <Landmark className="opacity-60 mb-1" size={36} />
           </div>
         </div>
@@ -332,7 +333,7 @@ const App = () => {
             </div>
 
             {!currentCase ? (
-               <div className="bg-white p-20 rounded-[3rem] shadow-xl flex flex-col items-center justify-center text-[#8D6E63]">
+               <div className="bg-white p-20 rounded-[3rem] shadow-xl flex flex-col items-center justify-center text-[#8D6E63] text-balance">
                   <RefreshCw className="animate-spin mb-4" size={32} />
                   <p className="font-black animate-pulse">正在调取资料...</p>
                </div>
