@@ -3,19 +3,29 @@ import { createRoot } from 'react-dom/client';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
-// 修复点1：移除了不存在的 UserSearch，确保所有图标都能找到
-import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark, CheckCircle2, Circle, ArrowLeft, Coffee, Timer, Terminal } from 'lucide-react';
+import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark, CheckCircle2, Circle, ArrowLeft, Coffee, Timer, Terminal, UserPlus as UserSearch } from 'lucide-react';
 
-/* --- 1. 配置解析与环境 --- */
+/* --- 1. 智能配置解析（兼容 JS 和 JSON 格式） --- */
 const parseConfig = (val) => {
   if (!val) return null;
-  try { return JSON.parse(val); } catch (e) {
+  try {
+    // 尝试直接解析标准 JSON
+    return JSON.parse(val);
+  } catch (e) {
     try {
+      // 如果失败，尝试修复 JS 对象格式（自动给键名加引号）
       let s = val.trim();
+      // 去掉可能存在的 const firebaseConfig = ... 头部
       if (s.includes('=')) s = s.substring(s.indexOf('{'), s.lastIndexOf('}') + 1);
+      // 去掉结尾的分号
       if (s.endsWith(';')) s = s.slice(0, -1);
-      return JSON.parse(s);
-    } catch (e2) { return null; }
+      // 核心修复：把 apiKey: 替换成 "apiKey":
+      const jsonLike = s.replace(/(\w+)\s*:/g, '"$1":'); 
+      return JSON.parse(jsonLike);
+    } catch (e2) {
+      console.error("配置解析彻底失败，请检查 Vercel 环境变量格式", e2);
+      return null;
+    }
   }
 };
 
@@ -39,6 +49,7 @@ const FIXED_COVER_URL = "/cover.jpg";
 
 /* --- 2. 初始化 Firebase --- */
 let app, auth, db;
+// 增加容错，只有配置解析成功才初始化
 if (firebaseConfig && firebaseConfig.apiKey) {
   try {
     app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -71,8 +82,9 @@ const App = () => {
 
   // 认证监听
   useEffect(() => {
+    // 如果 auth 为空，说明配置解析失败，抛出明确错误
     if (!auth) {
-      setError("配置异常：未检测到 Firebase 配置，请检查 Vercel 环境变量。");
+      setError("配置异常：未检测到 Firebase 配置。请确保 Vercel 环境变量 VITE_FIREBASE_CONFIG 已正确填写。");
       setInitializing(false);
       return;
     }
@@ -80,8 +92,9 @@ const App = () => {
       setUser(u);
       if (u) setInitializing(false);
     });
-    signInAnonymously(auth).catch(() => {
-        setError("认证服务连接失败");
+    signInAnonymously(auth).catch((err) => {
+        console.error("Auth Error:", err);
+        setError("认证服务连接失败，请检查网络或配置");
         setInitializing(false);
     });
     return () => unsubscribe();
@@ -96,7 +109,6 @@ const App = () => {
         const data = snap.data();
         setCurrentCase(data);
         if (devMode && !data.verdict) {
-            // 自动切换开发者视角
             if (!data.sideA.submitted) setDevTargetSide('A');
             else if (!data.sideB.submitted) setDevTargetSide('B');
         }
@@ -221,8 +233,9 @@ const App = () => {
       )}
 
       <nav className="sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-[#F5EBE0] p-4 flex justify-between items-center shadow-sm">
+        {/* 修改 1：右上角主标题 */}
         <div className="flex items-center gap-2 font-black text-lg text-[#8D6E63] cursor-pointer" onClick={handleTitleClick}>
-          <Scale className="fill-[#8D6E63] text-white p-0.5 bg-[#8D6E63] rounded" size={24} /> 轻松熊法庭 {devMode && <span className="text-xs text-red-500 bg-red-100 px-1 rounded">DEV</span>}
+          <Scale className="fill-[#8D6E63] text-white p-0.5 bg-[#8D6E63] rounded" size={24} /> 轻松熊王国最高法院 {devMode && <span className="text-xs text-red-500 bg-red-100 px-1 rounded">DEV</span>}
         </div>
         {user && <span className="text-xs font-mono text-[#A1887F]">{user.uid.slice(0,4)}</span>}
       </nav>
@@ -236,7 +249,10 @@ const App = () => {
         {!caseId ? (
           <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-[#F5EBE0] text-center relative overflow-hidden">
             <Gavel className="mx-auto text-amber-500 mb-4 bg-amber-50 p-4 rounded-3xl w-20 h-20" />
-            <h2 className="text-2xl font-black text-[#3E2723] mb-8">神圣最高法庭</h2>
+            {/* 修改 2：卡片主标题 */}
+            <h2 className="text-2xl font-black text-[#3E2723] mb-3">轻松熊王国最高法庭：正式开庭</h2>
+            {/* 修改 3：副标题文案 */}
+            <p className="text-[#8D6E63] text-sm mb-10 px-6 font-medium leading-relaxed">就是你们两个吵架了？肃静，和熊说说事情经过。</p>
             
             {showRoleSelect ? (
                <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-right">
@@ -246,10 +262,11 @@ const App = () => {
                </div>
             ) : (
                <>
-                 <button onClick={() => setShowRoleSelect(true)} className="w-full bg-[#8D6E63] text-white py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition mb-4 flex justify-center gap-2"><UserPlus /> 发起新诉讼</button>
-                 <div className="flex gap-2">
-                   <input placeholder="输入案卷号" className="flex-1 bg-[#FDF5E6] rounded-2xl px-4 text-center font-black tracking-widest text-[#5D4037] outline-none border-2 border-transparent focus:border-amber-200" onChange={e => setTempInput(e.target.value)} />
-                   <button onClick={() => joinCase(tempInput)} className="bg-white border-2 border-[#8D6E63] text-[#8D6E63] px-5 rounded-2xl font-black">调取</button>
+                 <button onClick={() => setShowRoleSelect(true)} className="w-full bg-[#8D6E63] text-white py-5 rounded-2xl font-black text-xl shadow-lg active:scale-95 transition mb-6 flex justify-center gap-2"><UserPlus /> 发起新诉讼</button>
+                 {/* 修改 4：放大输入框和调取按钮，高度增加到 h-16 (相当于 py-4)，字号变大 */}
+                 <div className="flex gap-3 h-16 items-stretch">
+                   <input placeholder="输入案卷号" className="flex-1 bg-[#FDF5E6] rounded-2xl px-6 text-center font-black tracking-widest text-[#5D4037] text-xl outline-none border-2 border-transparent focus:border-amber-200 placeholder:text-amber-800/30" onChange={e => setTempInput(e.target.value)} />
+                   <button onClick={() => joinCase(tempInput)} className="bg-white border-2 border-[#8D6E63] text-[#8D6E63] px-8 rounded-2xl font-black text-lg hover:bg-[#FDF5E6] transition active:scale-95 whitespace-nowrap">调取</button>
                  </div>
                </>
             )}
@@ -270,8 +287,7 @@ const App = () => {
                 <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-[#F5EBE0] min-h-[400px] flex flex-col">
                    {(!userRole && !devMode) ? (
                       <div className="flex-1 flex flex-col items-center justify-center text-center">
-                         {/* 修复点2：这里把 UserSearch 换成了 UserPlus */}
-                        <UserPlus className="w-16 h-16 text-amber-500 mb-4" />
+                        <UserSearch className="w-16 h-16 text-amber-500 mb-4" />
                         <h3 className="font-black text-lg mb-6 text-[#5D4037]">请认领当事人身份</h3>
                         <div className="grid grid-cols-2 gap-4 w-full">
                            <button onClick={() => pickRoleInCase('male')} disabled={!!currentCase.sideA.uid} className={`p-4 rounded-2xl font-bold border-2 ${currentCase.sideA.uid ? 'bg-gray-100 text-gray-400 grayscale' : 'bg-blue-50 border-blue-100 text-blue-600'}`}>🙋‍♂️ 男方{currentCase.sideA.uid&&'(已)'}</button>
