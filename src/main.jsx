@@ -6,10 +6,11 @@ import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc } from 'fireba
 import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark, CheckCircle2, Circle, ArrowLeft, Coffee, Timer, Terminal, UserSearch } from 'lucide-react';
 
 /**
- * --- 王国终极静态注入层 ---
- * 【法官大人注意：请彻底忽略右侧预览窗的 es2015 警告】
- * 这几行代码是 Vite 替换环境变量的“物理锚点”。
- * 如果修改了写法，Vercel 构建时密钥就会丢失，导致线上版本崩溃！
+ * --- 王国核心配置注入层 ---
+ * 【Vercel 生产环境存续关键】
+ * Vite 构建阶段必须通过静态字符串扫描来替换密钥。
+ * 请彻底忽略预览窗右侧的 "es2015" 或 "import.meta" 警告，那是预览器环境落后导致的。
+ * 修改此处的写法将直接导致 Vercel 部署后的版本无法获取 API Key！
  */
 const parseConfig = (val) => {
   if (!val) return null;
@@ -23,17 +24,17 @@ const parseConfig = (val) => {
   }
 };
 
-// 1. 物理强固：Vite 静态分析专用字面量
+// 1. 强制静态字面量读取：Vite 打包工具的唯一识别点
 const RAW_FIREBASE = import.meta.env.VITE_FIREBASE_CONFIG;
 const RAW_GEMINI = import.meta.env.VITE_GEMINI_API_KEY;
 const RAW_APP_ID = import.meta.env.VITE_APP_ID;
 
-// 2. 优先级判定：Canvas 预览优先，Vercel 注入次之
+// 2. 环境优先级判定
 const firebaseConfig = parseConfig(typeof window !== 'undefined' && window.__firebase_config ? window.__firebase_config : RAW_FIREBASE);
 const apiKey = (typeof window !== 'undefined' && window.__api_key) ? window.__api_key : RAW_GEMINI;
 const appId = (typeof window !== 'undefined' && window.__app_id) ? window.__app_id : (RAW_APP_ID || 'bear-judge-app-v3');
 
-// 环境感知
+// 环境感知与模型设定
 const isCanvas = typeof window !== 'undefined' && (!!window.__api_key || window.location.hostname.includes('usercontent.goog'));
 const modelName = isCanvas ? "gemini-2.5-flash-preview-09-2025" : "gemini-1.5-flash";
 const FIXED_COVER_URL = "/cover.jpg"; 
@@ -46,7 +47,7 @@ if (firebaseConfig && firebaseConfig.apiKey) {
     auth = getAuth(app);
     db = getFirestore(app);
   } catch (e) {
-    console.error("Firebase Init Crash:", e);
+    console.error("Firebase Init Error:", e);
   }
 }
 
@@ -70,10 +71,10 @@ const App = () => {
   const [clickCount, setClickCount] = useState(0);
   const [devTargetSide, setDevTargetSide] = useState('A'); 
 
-  // 1. 初始化认证 (RULE 3)
+  // 1. 认证初始化 (遵守 RULE 3)
   useEffect(() => {
     if (!auth) {
-      setError("配置缺失：请检查 Vercel 环境变量名是否正确，并 Redeploy 嗷！");
+      setError("配置缺失：密钥未能正确注入。请在 Vercel 检查变量名并 Redeploy 嗷！");
       setInitializing(false);
       return;
     }
@@ -87,7 +88,7 @@ const App = () => {
         if (token) await signInWithCustomToken(auth, token);
         else await signInAnonymously(auth);
       } catch (err) {
-        setError("认证系统同步失败。");
+        setError("认证同步失败，请检查网络。");
         setInitializing(false);
       }
     };
@@ -95,7 +96,7 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // 2. 实时监听案卷 (RULE 1 & 2)
+  // 2. 实时监听案卷 (遵守 RULE 1 & 2)
   useEffect(() => {
     if (!user || !caseId || !db) return;
     const caseDoc = doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId);
@@ -103,13 +104,12 @@ const App = () => {
       if (snap.exists()) {
         const data = snap.data();
         setCurrentCase(data);
-        // Dev模式智能切换
         if (devMode && !data.verdict) {
           if (!data.sideA.submitted) setDevTargetSide('A');
           else if (!data.sideB.submitted) setDevTargetSide('B');
         }
       }
-    }, (err) => { setError("卷宗监听失败。"); });
+    }, (err) => { setError("卷宗链路中断。"); });
     return () => unsubscribe();
   }, [user, caseId, devMode]);
 
@@ -132,13 +132,11 @@ const App = () => {
   };
 
   const checkFoundation = () => {
-    console.log("--- 法庭地基最后诊断 ---");
-    console.log("Model:", modelName);
-    console.log("API Key Status:", apiKey ? `OK (${apiKey.substring(0, 4)}...)` : "MISSING!");
-    console.log("App ID:", appId);
-    console.log("User:", user?.uid);
-    console.log("----------------------");
-    setError(`自检结果：${apiKey ? '密钥已识别' : '密钥缺失'}。请查看控制台 F12 嗷！`);
+    console.log("--- 王国地基终审诊断 ---");
+    console.log("Env Mode:", isCanvas ? "Canvas" : "Vercel Production");
+    console.log("API Key Status:", apiKey ? `Recognized (${apiKey.substring(0, 4)}...)` : "MISSING!");
+    console.log("------------------------");
+    setError(`自检完成！API 状态：${apiKey ? '已就绪' : '缺失'}。请查看控制台。`);
   };
 
   const createCase = async (chosenRole) => {
@@ -173,11 +171,8 @@ const App = () => {
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId), {
         [`${field}.uid`]: user.uid
       });
-    } catch (err) {
-      setError("身份认领失败。");
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError("身份认领失败嗷。"); }
+    finally { setLoading(false); }
   };
 
   const submitPart = async () => {
@@ -190,7 +185,7 @@ const App = () => {
         [`${field}.content`]: tempInput, [`${field}.submitted`]: true
       });
       setTempInput('');
-    } catch (err) { setError("证据归档失败。"); }
+    } catch (err) { setError("证词归档失败嗷。"); }
     finally { setLoading(false); }
   };
 
@@ -201,7 +196,7 @@ const App = () => {
     lastRequestTime.current = now;
 
     if (!apiKey) { 
-      setError("AI 宣判核心未激活：由于静态注入失败，密钥未能载入。请执行 Vercel Redeploy 嗷！"); 
+      setError("AI 宣判核心无法启动：API 密钥未注入。请务必执行 Vercel Redeploy！"); 
       return; 
     }
     
@@ -209,7 +204,7 @@ const App = () => {
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
 
-    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感专家。必须输出严格 JSON。包含标题、归因、诊断、换位思考、金句、罚单。`;
+    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感专家。必须输出严格 JSON。包含标题、比例、诊断、换位思考、金句、罚单。`;
 
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
@@ -224,7 +219,10 @@ const App = () => {
       });
 
       if (response.status === 429) throw new Error("429");
-      if (!response.ok) throw new Error(`API_${response.status}`);
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(`API_${response.status}: ${errJson.error?.message || '通讯异常'}`);
+      }
       
       setLoadingMsg("熊正在撰写判决书...");
       const resData = await response.json();
@@ -237,7 +235,7 @@ const App = () => {
     } catch (err) {
       if (err.name === 'AbortError') return;
       if (err.message === "429") {
-        setError("熊法官思考得太累了（频率限制），请进入 60 秒强制休息嗷！🧸☕");
+        setError("熊法官思考得太累了（频率限制），进入 60 秒冷静期嗷！🧸☕");
         setCooldown(60); 
       } else {
         setError(`宣判异常：${err.message}`);
@@ -252,7 +250,7 @@ const App = () => {
     return (
       <div className="min-h-screen bg-[#FFFDFB] flex flex-col items-center justify-center text-[#8D6E63] p-10 text-center">
         <RefreshCw className="animate-spin mb-6 text-amber-600" size={48} />
-        <p className="font-black text-xl mb-2 animate-pulse tracking-tight">正在连接神圣最高法庭...</p>
+        <p className="font-black text-xl mb-2 animate-pulse tracking-tight text-balance">正在连接神圣最高法庭...</p>
       </div>
     );
   }
@@ -260,7 +258,6 @@ const App = () => {
   const verdictData = currentCase?.verdict || null;
   const isBothSubmitted = currentCase?.sideA?.submitted && currentCase?.sideB?.submitted;
   
-  // 角色判定：当前用户是否已参与
   const userRole = currentCase?.sideA?.uid === user?.uid ? 'A' : (currentCase?.sideB?.uid === user?.uid ? 'B' : null);
   const isMyTurn = currentCase && !verdictData && !isBothSubmitted && (
     devMode || (userRole === 'A' && !currentCase.sideA.submitted) || (userRole === 'B' && !currentCase.sideB.submitted)
@@ -273,9 +270,9 @@ const App = () => {
           <div className="flex items-center gap-3">
              {error.includes("限制") ? <Coffee size={24} className="animate-bounce" /> : <AlertCircle size={24} />}
              <span className="flex-1 leading-tight">{error}</span>
-             <button onClick={() => setError('')} className="p-2 bg-white/20 rounded-xl">关闭</button>
+             <button onClick={() => setError('')} className="p-2 bg-white/20 rounded-xl hover:bg-white/30 transition-colors">关闭</button>
           </div>
-          <button onClick={checkFoundation} className="w-full py-2 bg-black/20 rounded-xl text-[10px] flex items-center justify-center gap-2 tracking-widest uppercase font-bold"><Terminal size={14} /> 启动法庭地基自检</button>
+          <button onClick={checkFoundation} className="w-full py-2 bg-black/20 rounded-xl text-[10px] flex items-center justify-center gap-2 uppercase tracking-widest font-bold"><Terminal size={14} /> 启动地基自检</button>
         </div>
       )}
 
@@ -292,7 +289,7 @@ const App = () => {
           <img src={FIXED_COVER_URL} className="w-full h-full object-cover transition-transform duration-700 hover:scale-105" alt="封面" 
                onError={(e) => { e.target.src = "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&q=80&w=1000"; }} />
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
-          <div className="absolute bottom-6 left-8 flex items-end justify-between right-8 text-white font-bold">
+          <div className="absolute bottom-6 left-8 flex items-end justify-between right-8 text-white font-bold text-balance">
             <h1 className="font-black text-2xl drop-shadow-lg leading-none tracking-tight">公正 · 治愈 · 爱</h1>
             <Landmark className="opacity-60 mb-1" size={36} />
           </div>
@@ -308,8 +305,8 @@ const App = () => {
               <div className="space-y-4">
                 {showRoleSelect ? (
                   <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-bottom-4 duration-300">
-                    <button onClick={() => createCase('male')} className="bg-blue-50 border-2 border-blue-100 p-6 rounded-3xl active:scale-95 transition-all shadow-sm group font-bold text-blue-700"><span className="text-3xl block mb-2 transition-transform group-hover:scale-110">🙋‍♂️</span>男方当事人</button>
-                    <button onClick={() => createCase('female')} className="bg-rose-50 border-2 border-rose-100 p-6 rounded-3xl active:scale-95 transition-all shadow-sm group font-bold text-rose-700"><span className="text-3xl block mb-2 transition-transform group-hover:scale-110">🙋‍♀️</span>女方当事人</button>
+                    <button onClick={() => createCase('male')} className="bg-blue-50 border-2 border-blue-100 p-6 rounded-[2rem] active:scale-95 transition-all shadow-sm group font-bold text-blue-700"><span className="text-3xl block mb-2 transition-transform group-hover:scale-110">🙋‍♂️</span>男方当事人</button>
+                    <button onClick={() => createCase('female')} className="bg-rose-50 border-2 border-rose-100 p-6 rounded-[2rem] active:scale-95 transition-all shadow-sm group font-bold text-rose-700"><span className="text-3xl block mb-2 transition-transform group-hover:scale-110">🙋‍♀️</span>女方当事人</button>
                     <button onClick={() => setShowRoleSelect(false)} className="col-span-2 text-sm text-[#A1887F] font-black py-4 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center gap-2 active:scale-95 transition-all mt-2 uppercase font-bold tracking-widest"><ArrowLeft size={16} /> 返回大厅</button>
                   </div>
                 ) : (
@@ -335,7 +332,7 @@ const App = () => {
             {!currentCase ? (
                <div className="bg-white p-20 rounded-[3rem] shadow-xl flex flex-col items-center justify-center text-[#8D6E63] text-balance">
                   <RefreshCw className="animate-spin mb-4" size={32} />
-                  <p className="font-black animate-pulse">正在调取卷宗资料...</p>
+                  <p className="font-black animate-pulse">正在调取资料...</p>
                </div>
             ) : !verdictData ? (
               <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-[#F5EBE0] min-h-[400px] flex flex-col relative overflow-hidden">
@@ -346,11 +343,11 @@ const App = () => {
                     <h3 className="text-xl font-black mb-2">请认领当事人身份</h3>
                     <p className="text-xs text-[#8D6E63] mb-10 px-10 leading-relaxed text-balance">熊在案卷里还没认出你嗷，认领角色后才能提交证词哦！</p>
                     <div className="grid grid-cols-2 gap-4 w-full px-6">
-                       <button onClick={() => pickRoleInCase('male')} disabled={!!currentCase.sideA.uid} className={`p-6 rounded-[2rem] border-2 transition-all shadow-sm ${currentCase.sideA.uid ? 'bg-gray-50 border-gray-100 opacity-40 grayscale text-gray-400' : 'bg-blue-50 border-blue-100 text-blue-700 active:scale-95'}`}>
+                       <button onClick={() => pickRoleInCase('male')} disabled={!!currentCase.sideA.uid} className={`p-6 rounded-[2rem] border-2 transition-all shadow-sm ${currentCase.sideA.uid ? 'bg-gray-50 border-gray-100 opacity-40 grayscale text-gray-400 cursor-not-allowed' : 'bg-blue-50 border-blue-100 text-blue-700 active:scale-95'}`}>
                           <span className="text-3xl block mb-1">🙋‍♂️</span>
                           <span className="text-[10px] font-black uppercase tracking-tight">{currentCase.sideA.uid ? '男方已认领' : '我是男方'}</span>
                        </button>
-                       <button onClick={() => pickRoleInCase('female')} disabled={!!currentCase.sideB.uid} className={`p-6 rounded-[2rem] border-2 transition-all shadow-sm ${currentCase.sideB.uid ? 'bg-gray-50 border-gray-100 opacity-40 grayscale text-gray-400' : 'bg-rose-50 border-rose-100 text-rose-700 active:scale-95'}`}>
+                       <button onClick={() => pickRoleInCase('female')} disabled={!!currentCase.sideB.uid} className={`p-6 rounded-[2rem] border-2 transition-all shadow-sm ${currentCase.sideB.uid ? 'bg-gray-50 border-gray-100 opacity-40 grayscale text-gray-400 cursor-not-allowed' : 'bg-rose-50 border-rose-100 text-rose-700 active:scale-95'}`}>
                           <span className="text-3xl block mb-1">🙋‍♀️</span>
                           <span className="text-[10px] font-black uppercase tracking-tight">{currentCase.sideB.uid ? '女方已认领' : '我是女方'}</span>
                        </button>
@@ -361,31 +358,31 @@ const App = () => {
                     <div className="flex justify-between items-end mb-6">
                       <div>
                         <h3 className="font-black text-xl text-[#3E2723] flex items-center gap-2 mb-1"><MessageCircle className="text-amber-500" /> 提交辩词</h3>
-                        <p className="text-[10px] text-[#A1887F] font-bold uppercase">法律面前众熊平等，请如实描述争议细节嗷！</p>
+                        <p className="text-[10px] text-[#A1887F] font-bold uppercase tracking-tighter">法律面前众熊平等，请如实描述争议细节嗷！</p>
                       </div>
                       {devMode && (
                         <div className="flex bg-indigo-50 p-1 rounded-xl gap-1 border border-indigo-100 scale-90 origin-right shadow-sm">
-                          <button onClick={() => setDevTargetSide('A')} className={`text-[10px] font-black px-3 py-1 rounded-lg transition-colors ${devTargetSide === 'A' ? 'bg-indigo-600 text-white' : 'text-indigo-400'}`}>男</button>
-                          <button onClick={() => setDevTargetSide('B')} className={`text-[10px] font-black px-3 py-1 rounded-lg transition-colors ${devTargetSide === 'B' ? 'bg-indigo-600 text-white' : 'text-indigo-400'}`}>女</button>
+                          <button onClick={() => setDevTargetSide('A')} className={`text-[10px] font-black px-3 py-1 rounded-lg transition-colors ${devTargetSide === 'A' ? 'bg-indigo-600 text-white' : 'text-indigo-400'}`}>男方</button>
+                          <button onClick={() => setDevTargetSide('B')} className={`text-[10px] font-black px-3 py-1 rounded-lg transition-colors ${devTargetSide === 'B' ? 'bg-indigo-600 text-white' : 'text-indigo-400'}`}>女方</button>
                         </div>
                       )}
                     </div>
                     <textarea className="w-full flex-1 p-6 bg-[#FDFBF9] rounded-[2rem] border-2 border-[#F5EBE0] outline-none resize-none mb-6 text-sm leading-relaxed placeholder:text-gray-300" placeholder="把你的委屈告诉熊，熊会认真听的嗷..." value={tempInput} onChange={(e) => setTempInput(e.target.value)} />
-                    <button onClick={submitPart} disabled={loading} className="w-full bg-[#8D6E63] text-white py-5 rounded-[1.8rem] font-black text-xl shadow-lg active:scale-95 transition-all font-bold tracking-widest uppercase">确认归档</button>
+                    <button onClick={submitPart} disabled={loading} className="w-full bg-[#8D6E63] text-white py-5 rounded-[1.8rem] font-black text-xl shadow-lg active:scale-95 transition-all font-bold tracking-widest uppercase">确认归档证词</button>
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center text-center py-12 animate-in zoom-in-95 duration-500">
                     <div className="w-24 h-24 bg-white border border-amber-100 rounded-[2.5rem] flex items-center justify-center shadow-xl text-5xl mb-10 text-balance">🏛️</div>
                     <h3 className="text-2xl font-black mb-3 text-[#3E2723]">{isBothSubmitted ? '证据已收齐' : '采证进行中'}</h3>
-                    <p className="text-[#8D6E63] text-xs mb-10 px-10 leading-relaxed leading-relaxed text-balance">{isBothSubmitted ? '双方证词均已归入法典。点击按钮启动正式宣判嗷！' : '正在等待对方提交内心辩词嗷。法庭秩序重于一切～'}</p>
+                    <p className="text-[#8D6E63] text-xs mb-10 px-10 leading-relaxed leading-relaxed text-balance">{isBothSubmitted ? '双方证词均已归入法典。点击启动宣判！' : '等待对方提交证词。法庭秩序重于一切～'}</p>
                     <div className="grid grid-cols-2 gap-4 mb-10 w-full px-6 text-balance">
                       <div className={`p-4 rounded-3xl border flex flex-col items-center gap-1 transition-all duration-500 ${currentCase?.sideA?.submitted ? 'bg-blue-50 border-blue-100 text-blue-600' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
                         {currentCase?.sideA?.submitted ? <CheckCircle2 size={20} /> : <Circle size={20} />}
-                        <span className="text-[10px] font-black uppercase tracking-tighter">男方证词{currentCase?.sideA?.submitted ? '已就绪' : '待录入'}</span>
+                        <span className="text-[10px] font-black uppercase tracking-tighter font-bold">男方证词{currentCase?.sideA?.submitted ? '已就绪' : '待录入'}</span>
                       </div>
                       <div className={`p-4 rounded-3xl border flex flex-col items-center gap-1 transition-all duration-500 ${currentCase?.sideB?.submitted ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
                         {currentCase?.sideB?.submitted ? <CheckCircle2 size={20} /> : <Circle size={20} />}
-                        <span className="text-[10px] font-black uppercase tracking-tighter">女方证词{currentCase?.sideB?.submitted ? '已就绪' : '待录入'}</span>
+                        <span className="text-[10px] font-black uppercase tracking-tighter font-bold">女方证词{currentCase?.sideB?.submitted ? '已就绪' : '待录入'}</span>
                       </div>
                     </div>
                     {isBothSubmitted && (
@@ -404,8 +401,8 @@ const App = () => {
               <div className="animate-in slide-in-from-bottom-20 duration-1000 pb-10 text-balance">
                 <div className="bg-white rounded-[3.5rem] p-10 shadow-2xl border-t-[14px] border-[#8D6E63] relative overflow-hidden">
                   <div className="text-center mb-12">
-                    <div className="inline-block px-4 py-1 bg-[#FFF8E1] rounded-full text-[10px] font-black text-[#8D6E63] mb-6 border border-amber-100 uppercase tracking-widest tracking-widest font-bold font-bold">Kingdom Verdict</div>
-                    <h2 className="text-3xl font-black text-[#3E2723] mb-3 leading-tight tracking-tight tracking-tight font-bold">📜 {String(verdictData.verdict_title)}</h2>
+                    <div className="inline-block px-4 py-1 bg-[#FFF8E1] rounded-full text-[10px] font-black text-[#8D6E63] mb-6 border border-amber-100 uppercase tracking-widest font-bold">Kingdom Verdict</div>
+                    <h2 className="text-3xl font-black text-[#3E2723] mb-3 leading-tight font-bold">📜 {String(verdictData.verdict_title)}</h2>
                     <p className="text-sm italic bg-[#FDF5E6] py-3 px-6 rounded-2xl inline-block border border-amber-50">“{String(verdictData.law_reference)}”</p>
                   </div>
                   <div className="mb-14 bg-[#FDFBF9] p-8 rounded-[2.5rem] border border-[#F5EBE0] shadow-inner font-bold">
@@ -418,9 +415,9 @@ const App = () => {
                       <div className="h-full bg-gradient-to-r from-rose-300 to-rose-400 transition-all duration-1000" style={{ width: `${verdictData.fault_ratio?.B || 50}%` }} />
                     </div>
                   </div>
-                  <div className="space-y-10">
+                  <div className="space-y-10 text-balance">
                     <div><h4 className="font-black text-[#3E2723] mb-4 flex items-center gap-2 italic text-lg uppercase font-bold"><Sparkles size={22} className="text-amber-500" /> 王国深度诊断</h4><p className="text-[13px] leading-relaxed text-[#5D4037] font-medium pl-2">{String(verdictData.analysis)}</p></div>
-                    <div className="bg-emerald-50/70 p-8 rounded-[3rem] border border-emerald-100/50 shadow-sm relative"><h4 className="font-black text-emerald-800 mb-4 flex items-center gap-2 italic text-lg font-bold"><Heart size={22} className="text-emerald-500" /> 将心比心 · 懂你才可爱</h4><p className="text-[13px] leading-relaxed text-emerald-900/80 font-medium whitespace-pre-wrap">{String(verdictData.perspective_taking)}</p></div>
+                    <div className="bg-emerald-50/70 p-8 rounded-[3rem] border border-emerald-100/50 shadow-sm relative text-balance"><h4 className="font-black text-emerald-800 mb-4 flex items-center gap-2 italic text-lg font-bold"><Heart size={22} className="text-emerald-500" /> 将心比心 · 懂你才可爱</h4><p className="text-[13px] leading-relaxed text-emerald-900/80 font-medium whitespace-pre-wrap">{String(verdictData.perspective_taking)}</p></div>
                     <div className="bg-indigo-50/50 p-8 rounded-[2.5rem] text-center italic text-sm text-indigo-900/70 font-black leading-relaxed font-bold">“{String(verdictData.bear_wisdom)}”</div>
                   </div>
                   <div className="mt-16 pt-12 border-t-4 border-double border-[#F5EBE0]">
@@ -442,21 +439,16 @@ const App = () => {
   );
 };
 
-// 生产环境极致隔离挂载逻辑：完全杜绝 Edge/Chrome 双重渲染造成的 TypeError (reading 'S')
+// 生产环境单例挂载：杜绝双重渲染崩溃
 if (typeof document !== 'undefined') {
   const container = document.getElementById('root');
-
-  if (container) {
-    // 识别 Vercel 生产环境特征（排除 Canvas）
-    const isVercelProd =
-      !window.__api_key &&
-      !window.location.hostname.includes('usercontent.goog');
-
-    // 统一的 Root 单例
-    if (!container.__BEAR_JUDGE_ROOT__) {
-      const root = createRoot(container);
-      container.__BEAR_JUDGE_ROOT__ = root;
-      root.render(<App />);
+  // 仅在 Vercel 生产环境（排除 Canvas 域名）执行
+  const isVercelProd = container && !window.__api_key && !window.location.hostname.includes('usercontent.goog');
+  
+  if (isVercelProd) {
+    if (!window.__BEAR_JUDGE_GLOBAL_ROOT__) {
+       window.__BEAR_JUDGE_GLOBAL_ROOT__ = createRoot(container);
+       window.__BEAR_JUDGE_GLOBAL_ROOT__.render(<App />);
     }
   }
 }
