@@ -6,16 +6,15 @@ import { getFirestore, doc, setDoc, updateDoc, onSnapshot } from 'firebase/fires
 import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, CheckCircle2, UserPlus as UserSearch } from 'lucide-react';
 
 /* ========================================================================
-   ✅ 1. 你的真实 Firebase 配置 (已根据你的截图 2222.png 完美录入)
+   ✅ 1. 你的新 Firebase 配置 (已根据你的截图完美录入 bear-court-2026)
    ======================================================================== */
 const firebaseConfig = {
-  apiKey: "AIzaSyBSDZfWVm3aWUm1_xlgutijBBHdnMIO1LM",
-  authDomain: "bear-judge.firebaseapp.com",
-  projectId: "bear-judge",
-  storageBucket: "bear-judge.firebasestorage.app",
-  messagingSenderId: "644217782469",
-  appId: "1:644217782469:web:43bfd2ae572a90a4bbb0ac",
-  measurementId: "G-2TPP3CLY3G"
+  apiKey: "AIzaSyBfJbG3mx_GyvfcYREVUiDOHIqXIteGtBc",
+  authDomain: "bear-court-2026.firebaseapp.com",
+  projectId: "bear-court-2026",
+  storageBucket: "bear-court-2026.firebasestorage.app",
+  messagingSenderId: "422469568510",
+  appId: "1:422469568510:web:b3976df789af390724e2af"
 };
 
 /* ========================================================================
@@ -58,7 +57,7 @@ const App = () => {
   // 认证监听
   useEffect(() => {
     if (!auth) {
-      setError("Firebase 初始化失败，请检查配置");
+      setError("Firebase 初始化失败");
       setInitializing(false);
       return;
     }
@@ -67,14 +66,11 @@ const App = () => {
       if (u) setInitializing(false);
     });
 
-    // 自动尝试登录
     const tryLogin = () => {
         signInAnonymously(auth).catch((err) => {
             console.error("Auth Error:", err);
-            if (err.code === 'auth/api-key-not-valid') {
-               setError("❌ API Key 依然无效！请确保你的 Firebase 项目没有被删除。");
-            } else if (err.code === 'auth/operation-not-allowed') {
-               setError("❌ 登录未开启：请去 Firebase Console -> Build -> Authentication 重新开启匿名登录！");
+            if (err.code === 'auth/operation-not-allowed') {
+               setError("⚠️ 登录未开启：请务必去 bear-court-2026 的 Firebase后台 -> Authentication 开启匿名登录！");
             } else {
                setError(`登录失败 (${err.code})，请刷新重试`);
             }
@@ -117,7 +113,7 @@ const App = () => {
         id: newId, createdBy: user.uid, status: 'waiting', sideA, sideB, verdict: null, createdAt: Date.now()
       });
       setCurrentCase(null); setCaseId(newId);
-    } catch (err) { setError("创建失败：请检查 Firebase 数据库是否已开启 (Start in Test Mode)"); }
+    } catch (err) { setError("创建失败：请检查 bear-court-2026 的 Firestore 数据库是否已开启 (Start in Test Mode)"); }
     finally { setLoading(false); }
   };
 
