@@ -6,7 +6,8 @@ import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc } from 'fireba
 import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark, CheckCircle2, Circle, ArrowLeft } from 'lucide-react';
 
 /**
- * --- 王国终极配置清洗层 ---
+ * --- 王国配置清洗层 ---
+ * 确保在各种环境下都能正确读取环境变量
  */
 const advancedParse = (val) => {
   if (!val) return null;
@@ -60,7 +61,7 @@ const App = () => {
   // 1. 初始化身份认证
   useEffect(() => {
     if (!auth) {
-      setError("熊没能读取到有效配置，请去 Vercel 检查环境变量设置嗷！");
+      setError("熊没能读取到有效配置，请去 Vercel 检查环境变量设置并重新部署嗷！");
       setInitializing(false);
       return;
     }
@@ -82,7 +83,7 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // 2. 实时监听案卷 (核心防护层：防止读取 undefined 导致白屏)
+  // 2. 实时监听案卷 (核心防护层)
   useEffect(() => {
     if (!user || !caseId || !db) return;
     const caseDoc = doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId);
@@ -124,7 +125,7 @@ const App = () => {
       });
       setCurrentCase(null);
       setCaseId(newId);
-    } catch (err) { setError("案卷归档失败，请检查数据库规则。"); }
+    } catch (err) { setError("案卷生成失败，请确认数据库权限。"); }
     finally { setLoading(false); }
   };
 
@@ -142,8 +143,8 @@ const App = () => {
         if (Object.keys(update).length > 0) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', targetId), update);
         setCurrentCase(null); 
         setCaseId(targetId);
-      } else { setError("检索码错误，档案库里没搜到嗷。"); }
-    } catch (err) { setError("法庭连接失败。"); }
+      } else { setError("检索库中无此卷宗，请核对。"); }
+    } catch (err) { setError("法庭大门现在有点拥堵嗷。"); }
     finally { setLoading(false); }
   };
 
@@ -157,35 +158,50 @@ const App = () => {
         [`${field}.content`]: tempInput, [`${field}.submitted`]: true
       });
       setTempInput('');
-    } catch (err) { setError("证词归档失败嗷。"); }
+    } catch (err) { setError("证词归档失败，请检查网络。"); }
     finally { setLoading(false); }
   };
 
-  // --- 核心修复：指数退避重试 fetch 函数 ---
-  const fetchWithRetry = async (url, options, maxRetries = 5) => {
-    let delay = 1000;
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        const response = await fetch(url, options);
-        if (response.ok) return response;
-        if (i === maxRetries - 1) throw new Error(`HTTP ${response.status}`);
-      } catch (err) {
-        if (i === maxRetries - 1) throw err;
-      }
-      await new Promise(res => setTimeout(res, delay));
-      delay *= 2;
+  // --- 闪电优化：带超时的 Fetch 请求 ---
+  const fetchWithTimeout = async (url, options, timeout = 25000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeout);
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(id);
+      return response;
+    } catch (e) {
+      clearTimeout(id);
+      throw e;
     }
   };
 
-  // --- 核心修复：宣判逻辑深度加固 ---
+  const fetchWithRetry = async (url, options, maxRetries = 3) => {
+    let delay = 1500;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        console.log(`[王国通讯] 尝试连接 AI 宣判大脑 (${i + 1}/${maxRetries})...`);
+        const response = await fetchWithTimeout(url, options);
+        if (response.ok) return response;
+        if (i === maxRetries - 1) throw new Error(`HTTP 异常: ${response.status}`);
+      } catch (err) {
+        if (i === maxRetries - 1) throw err;
+        console.warn("[王国通讯] 连接波动，准备重新尝试连接...");
+      }
+      await new Promise(res => setTimeout(res, delay));
+      delay *= 1.5;
+    }
+  };
+
+  // --- 闪电优化：宣判逻辑深度加固 ---
   const triggerAIJudge = async () => {
-    if (!currentCase || !apiKey) { setError("AI 宣判核心未联网，请检查密钥。"); return; }
+    if (!currentCase || !apiKey) { setError("AI 宣判核心未联网，请检查环境变量。"); return; }
     setLoading(true); setError("");
 
-    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感专家。这里是轻松熊王国神圣最高法庭。语气极度严肃、专业且充满治愈感。自称必须为“熊”。
-    任务：基于双方提交的证词给出裁决。
-    输出限制：严禁输出任何Markdown标记或闲聊。必须仅输出一个合法的、可直接被JSON.parse解析的JSON对象。
-    结构示例：{ "verdict_title": "", "fault_ratio": {"A": 50, "B": 50}, "law_reference": "", "analysis": "", "perspective_taking": "", "bear_wisdom": "", "punishments": [] }`;
+    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感调解专家。这里是轻松熊王国神圣最高法庭。语气极度严肃、专业且充满治愈感。自称必须为“熊”。
+    任务：基于双方证词给出裁决。
+    输出限制：必须仅输出一个合法的 JSON 对象。严禁任何 Markdown 标记。
+    结构：{ "verdict_title": "", "fault_ratio": {"A": 50, "B": 50}, "law_reference": "", "analysis": "", "perspective_taking": "", "bear_wisdom": "", "punishments": [] }`;
 
     try {
       const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
@@ -194,29 +210,36 @@ const App = () => {
         body: JSON.stringify({
           contents: [{ parts: [{ text: `[男陈述]：${currentCase.sideA.content}\n[女陈述]：${currentCase.sideB.content}` }] }],
           systemInstruction: { parts: [{ text: systemPrompt }] },
-          generationConfig: { responseMimeType: "application/json" }
+          generationConfig: { 
+            responseMimeType: "application/json",
+            temperature: 0.7 
+          }
         })
       });
 
       const resData = await response.json();
       const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!rawText) throw new Error("Empty Response");
+      if (!rawText) throw new Error("AI 脑回路短路，未返回内容。");
 
-      // 暴力提取 JSON：处理可能存在的 Markdown 标签或前缀
+      // 强力正则提取 JSON：防止 AI 吐出非标准内容
       let cleanJsonStr = rawText;
       const jsonRegex = /\{[\s\S]*\}/;
       const match = rawText.match(jsonRegex);
       if (match) cleanJsonStr = match[0];
 
+      console.log("[王国通讯] 判决书已到达，正在解析存证...");
       const verdict = JSON.parse(cleanJsonStr);
       
+      // 只有在 Firestore 写入成功后才关闭加载
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId), { 
         verdict, 
         status: 'finished' 
       });
+      console.log("[王国通讯] 结案陈词已载入法典。");
     } catch (err) {
-      console.error("Verdict Error:", err);
-      setError("宣判逻辑波动：可能是数据格式或网络连接导致了解析失败，请点击重试嗷！");
+      console.error("Verdict Error Details:", err);
+      const msg = err.name === 'AbortError' ? "宣判超时：法官大人想得太久了，请点击重试嗷！" : "宣判异常：数据解析或通讯失败，请点击重试嗷！";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -234,6 +257,7 @@ const App = () => {
 
   const verdictData = currentCase?.verdict || null;
   const isBothSubmitted = currentCase?.sideA?.submitted && currentCase?.sideB?.submitted;
+  
   const isMyTurn = currentCase && !verdictData && !isBothSubmitted && (
     devMode || 
     (currentCase.sideA?.uid === user?.uid && !currentCase.sideA?.submitted) || 
@@ -253,9 +277,9 @@ const App = () => {
       <div className="max-w-xl mx-auto p-4 pt-6">
         <div className="relative mb-8 rounded-[2.5rem] shadow-2xl overflow-hidden border-[6px] border-white aspect-[16/9] bg-[#F5EBE0]">
           <img src={FIXED_COVER_URL} className="w-full h-full object-cover transition-transform duration-700 hover:scale-105" alt="法庭封面" 
-               onError={(e) => { e.target.src = "[https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&q=80&w=1000](https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&q=80&w=1000)"; }} />
+               onError={(e) => { e.target.src = "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&q=80&w=1000"; }} />
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
-          <div className="absolute bottom-6 left-8 flex items-end justify-between right-8 text-white">
+          <div className="absolute bottom-6 left-8 flex items-end justify-between right-8 text-white font-bold">
             <h1 className="font-black text-2xl drop-shadow-lg leading-none">公正 · 治愈 · 爱</h1>
             <Landmark className="opacity-60 mb-1" size={36} />
           </div>
