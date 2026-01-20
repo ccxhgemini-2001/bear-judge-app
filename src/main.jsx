@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
-import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark, CheckCircle2, Circle, ArrowLeft, Coffee, Timer, Terminal, UserSearch } from 'lucide-react';
+// 修复点1：移除了不存在的 UserSearch，确保所有图标都能找到
+import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus, Copy, ShieldCheck, Gavel, Award, Landmark, CheckCircle2, Circle, ArrowLeft, Coffee, Timer, Terminal } from 'lucide-react';
 
 /* --- 1. 配置解析与环境 --- */
 const parseConfig = (val) => {
@@ -114,7 +115,6 @@ const App = () => {
   const handleTitleClick = () => {
     setClickCount(prev => {
       const next = prev + 1;
-      // 修复处：这里已修正，删除了多余的感叹号，现在是合法的 d => !d
       if (next >= 5) { setDevMode(d => !d); return 0; }
       return next;
     });
@@ -270,7 +270,8 @@ const App = () => {
                 <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-[#F5EBE0] min-h-[400px] flex flex-col">
                    {(!userRole && !devMode) ? (
                       <div className="flex-1 flex flex-col items-center justify-center text-center">
-                        <UserSearch className="w-16 h-16 text-amber-500 mb-4" />
+                         {/* 修复点2：这里把 UserSearch 换成了 UserPlus */}
+                        <UserPlus className="w-16 h-16 text-amber-500 mb-4" />
                         <h3 className="font-black text-lg mb-6 text-[#5D4037]">请认领当事人身份</h3>
                         <div className="grid grid-cols-2 gap-4 w-full">
                            <button onClick={() => pickRoleInCase('male')} disabled={!!currentCase.sideA.uid} className={`p-4 rounded-2xl font-bold border-2 ${currentCase.sideA.uid ? 'bg-gray-100 text-gray-400 grayscale' : 'bg-blue-50 border-blue-100 text-blue-600'}`}>🙋‍♂️ 男方{currentCase.sideA.uid&&'(已)'}</button>
