@@ -7,7 +7,6 @@ import { Heart, Scale, MessageCircle, Sparkles, AlertCircle, RefreshCw, UserPlus
 
 /**
  * --- 王国终极配置清洗层 ---
- * 请忽略预览窗口的 import.meta 警告，这是上线后 Vercel 环境必需的。
  */
 const advancedParse = (val) => {
   if (!val) return null;
@@ -91,7 +90,6 @@ const App = () => {
       if (snap.exists()) {
         const data = snap.data();
         setCurrentCase(data);
-        // Dev 模式：自动切换到尚未提交的一方，方便测试
         if (devMode && !data.verdict) {
            if (!data.sideA.submitted) setDevTargetSide('A');
            else if (!data.sideB.submitted) setDevTargetSide('B');
@@ -124,7 +122,6 @@ const App = () => {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', newId), {
         id: newId, createdBy: user.uid, status: 'waiting', sideA, sideB, verdict: null, createdAt: Date.now()
       });
-      // 关键：先清空旧数据，再设ID，触发跳转
       setCurrentCase(null);
       setCaseId(newId);
     } catch (err) { setError("案卷归档失败，请检查数据库规则。"); }
@@ -143,7 +140,7 @@ const App = () => {
         if (!data.sideB.uid && data.sideA.uid !== user.uid) update["sideB.uid"] = user.uid;
         else if (!data.sideA.uid && data.sideB.uid !== user.uid) update["sideA.uid"] = user.uid;
         if (Object.keys(update).length > 0) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', targetId), update);
-        setCurrentCase(null); // 先清空，防止跳转瞬间读取旧数据
+        setCurrentCase(null); 
         setCaseId(targetId);
       } else { setError("检索码错误，档案库里没搜到嗷。"); }
     } catch (err) { setError("法庭连接失败。"); }
@@ -164,12 +161,34 @@ const App = () => {
     finally { setLoading(false); }
   };
 
+  // --- 核心修复：指数退避重试 fetch 函数 ---
+  const fetchWithRetry = async (url, options, maxRetries = 5) => {
+    let delay = 1000;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const response = await fetch(url, options);
+        if (response.ok) return response;
+        if (i === maxRetries - 1) throw new Error(`HTTP ${response.status}`);
+      } catch (err) {
+        if (i === maxRetries - 1) throw err;
+      }
+      await new Promise(res => setTimeout(res, delay));
+      delay *= 2;
+    }
+  };
+
+  // --- 核心修复：宣判逻辑深度加固 ---
   const triggerAIJudge = async () => {
-    if (!currentCase || !apiKey) { setError("AI 宣判大脑连接异常。"); return; }
+    if (!currentCase || !apiKey) { setError("AI 宣判核心未联网，请检查密钥。"); return; }
     setLoading(true); setError("");
-    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感专家。这里是轻松熊王国神圣最高法庭。语气极度严肃、专业且充满治愈感。自称必须为“熊”。输出必须是严格JSON格式。包含判决标题、归因比例、法律引用、深度诊断、将心比心、暖心金句、和好罚单。`;
+
+    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感专家。这里是轻松熊王国神圣最高法庭。语气极度严肃、专业且充满治愈感。自称必须为“熊”。
+    任务：基于双方提交的证词给出裁决。
+    输出限制：严禁输出任何Markdown标记或闲聊。必须仅输出一个合法的、可直接被JSON.parse解析的JSON对象。
+    结构示例：{ "verdict_title": "", "fault_ratio": {"A": 50, "B": 50}, "law_reference": "", "analysis": "", "perspective_taking": "", "bear_wisdom": "", "punishments": [] }`;
+
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+      const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -178,13 +197,29 @@ const App = () => {
           generationConfig: { responseMimeType: "application/json" }
         })
       });
+
       const resData = await response.json();
       const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text;
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      const verdict = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId), { verdict, status: 'finished' });
-    } catch (err) { setError("宣判逻辑异常，熊洗不动这串数据了，请重试嗷！"); }
-    finally { setLoading(false); }
+      if (!rawText) throw new Error("Empty Response");
+
+      // 暴力提取 JSON：处理可能存在的 Markdown 标签或前缀
+      let cleanJsonStr = rawText;
+      const jsonRegex = /\{[\s\S]*\}/;
+      const match = rawText.match(jsonRegex);
+      if (match) cleanJsonStr = match[0];
+
+      const verdict = JSON.parse(cleanJsonStr);
+      
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId), { 
+        verdict, 
+        status: 'finished' 
+      });
+    } catch (err) {
+      console.error("Verdict Error:", err);
+      setError("宣判逻辑波动：可能是数据格式或网络连接导致了解析失败，请点击重试嗷！");
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (initializing) {
@@ -199,8 +234,6 @@ const App = () => {
 
   const verdictData = currentCase?.verdict || null;
   const isBothSubmitted = currentCase?.sideA?.submitted && currentCase?.sideB?.submitted;
-  
-  // 判断当前用户是否该提交
   const isMyTurn = currentCase && !verdictData && !isBothSubmitted && (
     devMode || 
     (currentCase.sideA?.uid === user?.uid && !currentCase.sideA?.submitted) || 
@@ -209,7 +242,6 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-[#FFFDFB] text-[#4E342E] font-sans pb-10 select-none overflow-x-hidden text-balance">
-      {/* 顶部法院导航栏 */}
       <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-20 p-4 border-b border-[#F5EBE0] flex justify-between items-center px-6 shadow-sm">
         <div className="flex items-center gap-2 cursor-pointer active:scale-95 transition-all" onClick={handleTitleClick}>
           <div className="bg-[#8D6E63] p-1.5 rounded-lg shadow-inner"><Scale className="text-white" size={18} /></div>
@@ -219,10 +251,9 @@ const App = () => {
       </nav>
 
       <div className="max-w-xl mx-auto p-4 pt-6">
-        {/* 固定封面展示 */}
         <div className="relative mb-8 rounded-[2.5rem] shadow-2xl overflow-hidden border-[6px] border-white aspect-[16/9] bg-[#F5EBE0]">
           <img src={FIXED_COVER_URL} className="w-full h-full object-cover transition-transform duration-700 hover:scale-105" alt="法庭封面" 
-               onError={(e) => { e.target.src = "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&q=80&w=1000"; }} />
+               onError={(e) => { e.target.src = "[https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&q=80&w=1000](https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&q=80&w=1000)"; }} />
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
           <div className="absolute bottom-6 left-8 flex items-end justify-between right-8 text-white">
             <h1 className="font-black text-2xl drop-shadow-lg leading-none">公正 · 治愈 · 爱</h1>
@@ -256,7 +287,7 @@ const App = () => {
                   <><button onClick={() => setShowRoleSelect(true)} className="w-full bg-[#8D6E63] text-white py-5 rounded-[2rem] font-black text-lg shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"><UserPlus size={22}/> 发起新诉讼</button>
                     <div className="flex gap-2 mt-4 items-stretch h-14">
                       <input placeholder="输入卷宗检索码" className="flex-1 min-w-0 p-4 rounded-[1.5rem] bg-[#FDF5E6] border-2 border-transparent focus:border-amber-200 outline-none text-center font-black tracking-widest uppercase text-xs" onChange={(e) => setTempInput(e.target.value)} />
-                      <button onClick={() => joinCase(tempInput)} className="flex-shrink-0 bg-white border-2 border-[#8D6E63] text-[#8D6E63] px-6 rounded-[1.5rem] font-black active:bg-[#FDF5E6] text-sm shadow-sm">调取</button>
+                      <button onClick={() => joinCase(tempInput)} className="flex-shrink-0 bg-white border-2 border-[#8D6E63] text-[#8D6E63] px-6 rounded-[1.5rem] font-black active:bg-[#FDF5E6] text-sm shadow-sm transition-colors">调取</button>
                     </div></>
                 )}
               </div>
@@ -264,7 +295,6 @@ const App = () => {
           </div>
         ) : (
           <div className="space-y-6 animate-in fade-in duration-500">
-            {/* 案卷检索标识 */}
             <div className="bg-white p-6 rounded-[2.5rem] flex justify-between items-center shadow-md border border-[#F5EBE0]">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-[#FFF8E1] rounded-2xl flex items-center justify-center text-amber-600 border border-amber-100 shadow-sm"><ShieldCheck size={28} /></div>
@@ -273,7 +303,6 @@ const App = () => {
               <button onClick={() => navigator.clipboard.writeText(caseId)} className="p-3 bg-[#FDF5E6] text-[#8D6E63] rounded-2xl active:bg-[#F5EBE0] transition-colors"><Copy size={20} /></button>
             </div>
 
-            {/* 案卷加载遮罩：防止跳转瞬时白屏 */}
             {!currentCase ? (
                <div className="bg-white p-20 rounded-[3rem] shadow-xl flex flex-col items-center justify-center text-[#8D6E63]">
                   <RefreshCw className="animate-spin mb-4" size={32} />
@@ -308,8 +337,6 @@ const App = () => {
                     <p className="text-[#8D6E63] text-xs mb-10 px-10 font-medium leading-relaxed">
                       {isBothSubmitted ? '双方当事人的证词均已归入法典。点击下方按钮，开庭宣判嗷！' : '熊还在等待对方提交内心辩词嗷。法庭秩序重于一切，请耐心等候～'}
                     </p>
-                    
-                    {/* 证词状态显示 UI */}
                     <div className="grid grid-cols-2 gap-4 mb-10 w-full px-6">
                       <div className={`p-4 rounded-3xl border flex flex-col items-center gap-1 transition-all duration-500 ${currentCase?.sideA?.submitted ? 'bg-blue-50 border-blue-100 text-blue-600' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
                         {currentCase?.sideA?.submitted ? <CheckCircle2 size={20} /> : <Circle size={20} />}
@@ -320,7 +347,6 @@ const App = () => {
                         <span className="text-[10px] font-black uppercase tracking-tighter">女方证词{currentCase?.sideB?.submitted ? '已就绪' : '待录入'}</span>
                       </div>
                     </div>
-
                     {isBothSubmitted && <button onClick={triggerAIJudge} disabled={loading} className="bg-[#D84315] text-white px-16 py-6 rounded-full font-black text-2xl hover:bg-[#BF360C] shadow-2xl animate-pulse flex items-center gap-4 active:scale-95 transition-all">{loading ? <RefreshCw className="animate-spin" /> : <Gavel size={32} />} 熊要宣判了！</button>}
                   </div>
                 )}
