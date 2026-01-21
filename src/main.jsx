@@ -41,15 +41,20 @@ if (isConfigValid) {
 /* --- 主组件 --- */
 const App = () => {
   const [user, setUser] = useState(null);
-  const [initializing, setInitializing] = useState(true);
-  const [caseId, setCaseId] = useState('');
-  const [currentCase, setCurrentCase] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [loadingMsg, setLoadingMsg] = useState('');
-  const [error, setError] = useState('');
-  const [tempInput, setTempInput] = useState('');
-  const [showRoleSelect, setShowRoleSelect] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
+  const tryLogin = () => {
+    signInAnonymously(auth).catch((err) => {
+        console.error("完整错误对象:", err);
+        console.error("错误代码:", err.code);
+        console.error("错误消息:", err.message);
+        
+        if (err.code === 'auth/operation-not-allowed') {
+           setError("⚠️ 登录未开启");
+        } else {
+           setError(`登录失败: ${err.code} - ${err.message}`);
+        }
+        setInitializing(false);
+    });
+};
   
   const cooldownRef = useRef(null);
   const abortControllerRef = useRef(null);
