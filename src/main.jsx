@@ -20,13 +20,16 @@ const firebaseConfig = {
 /* ========================================================================
    ✅ 2. 你的 Gemini API Key (已填好)
    ======================================================================== */
-const GEMINI_API_KEY = "AIzaSyAwAHM6_ME-bxUjxTr2HUmnywUg7sfvOo8"; 
+const GEMINI_API_KEY = "AIzaSyAwAHM6_ME-bxUjxTr2HUmnywUg7sfvOo8";
 
 /* --- 环境与常量 --- */
-const isConfigValid = firebaseConfig && firebaseConfig.apiKey; 
+const isConfigValid = firebaseConfig && firebaseConfig.apiKey;
+
 const appId = 'bear-judge-app-v3';
 const modelName = "gemini-1.5-flash";
+// 修复：使用在线图片作为备用，如果 public/cover.jpg 能加载就用本地的
 const FIXED_COVER_URL = "/cover.jpg";
+const FALLBACK_COVER_URL = "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=800";
 
 /* --- 初始化 Firebase --- */
 let app, auth, db;
@@ -41,20 +44,15 @@ if (isConfigValid) {
 /* --- 主组件 --- */
 const App = () => {
   const [user, setUser] = useState(null);
-  const tryLogin = () => {
-    signInAnonymously(auth).catch((err) => {
-        console.error("完整错误对象:", err);
-        console.error("错误代码:", err.code);
-        console.error("错误消息:", err.message);
-        
-        if (err.code === 'auth/operation-not-allowed') {
-           setError("⚠️ 登录未开启");
-        } else {
-           setError(`登录失败: ${err.code} - ${err.message}`);
-        }
-        setInitializing(false);
-    });
-};
+  const [initializing, setInitializing] = useState(true);
+  const [caseId, setCaseId] = useState('');
+  const [currentCase, setCurrentCase] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('');
+  const [error, setError] = useState('');
+  const [tempInput, setTempInput] = useState('');
+  const [showRoleSelect, setShowRoleSelect] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   
   const cooldownRef = useRef(null);
   const abortControllerRef = useRef(null);
@@ -107,6 +105,15 @@ const App = () => {
     return () => clearInterval(cooldownRef.current);
   }, [cooldown]);
 
+  // 清理 abortController
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
   const createCase = async (chosenRole) => {
     if (!db || !user) return setError("数据库未连接");
     setLoading(true); setError("");
@@ -152,13 +159,13 @@ const App = () => {
     if (loading || cooldown > 0) return;
     const finalKey = GEMINI_API_KEY;
     if (!finalKey) { setError("代码中缺少 API Key"); return; }
-    
+        
     setLoading(true); setError(""); setLoadingMsg("🐻 法官正在阅读卷宗 (AI思考中)...");
-    
+        
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
 
-    const systemPrompt = `你是一位名为“轻松熊法官”的AI情感调解专家。必须输出严格 JSON 格式的裁决。包含判决标题、归因比例、法律引用、深度诊断、将心比心、暖心金句、和好罚单。`;
+    const systemPrompt = `你是一位名为"轻松熊法官"的AI情感调解专家。必须输出严格 JSON 格式的裁决。包含判决标题、归因比例、法律引用、深度诊断、将心比心、暖心金句、和好罚单。`;
 
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${finalKey}`, {
@@ -179,18 +186,26 @@ const App = () => {
       });
 
       if (response.status === 429) { throw new Error("429"); }
-      
+            
       const resData = await response.json();
-      
+            
       if (!response.ok) {
          const googleError = resData.error?.message || resData.error?.status || "API Error";
          throw new Error(`AI请求失败: ${googleError}`);
       }
-      
+            
       const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!rawText) throw new Error("法官发呆了(无返回内容)");
 
-      const verdict = JSON.parse(rawText);
+      // 添加 JSON 解析错误处理
+      let verdict;
+      try {
+        verdict = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.error("JSON解析失败:", rawText);
+        throw new Error("法官判决书格式有误，请重试");
+      }
+
       await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'cases', caseId), { verdict, status: 'finished' });
     } catch (err) {
       if (err.message === "429") { setError("法官累了，请休息 60 秒"); setCooldown(60); }
@@ -208,8 +223,8 @@ const App = () => {
     <div className="min-h-screen bg-[#FFFDFB] text-[#4E342E] font-sans pb-10 select-none overflow-x-hidden">
       {error && (
         <div className="fixed top-20 left-4 right-4 z-50 p-4 bg-rose-600 text-white rounded-2xl shadow-xl flex items-center gap-3 animate-in slide-in-from-top-2">
-           <AlertCircle /> <span className="flex-1 text-sm font-bold">{error}</span> 
-           <button onClick={() => setError('')} className="bg-white/20 p-1 rounded">✕</button>
+          <AlertCircle /> <span className="flex-1 text-sm font-bold">{error}</span> 
+          <button onClick={() => setError('')} className="bg-white/20 p-1 rounded">✕</button>
         </div>
       )}
 
@@ -222,7 +237,12 @@ const App = () => {
 
       <div className="max-w-4xl mx-auto p-6">
         <div className="aspect-video bg-[#F5EBE0] rounded-3xl mb-8 relative overflow-hidden shadow-lg border-4 border-white">
-            <img src={FIXED_COVER_URL} className="w-full h-full object-cover" onError={(e)=>e.target.src="https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=800"} alt="Cover" />
+            <img 
+              src={FIXED_COVER_URL} 
+              className="w-full h-full object-cover" 
+              onError={(e) => e.target.src = FALLBACK_COVER_URL} 
+              alt="Cover" 
+            />
             <div className="absolute bottom-6 left-8 text-white font-black text-3xl drop-shadow-md">公正 · 治愈 · 爱</div>
         </div>
 
@@ -231,7 +251,7 @@ const App = () => {
             <Gavel className="mx-auto text-amber-500 mb-6 bg-amber-50 p-5 rounded-[2rem] w-24 h-24" />
             <h2 className="text-3xl font-black text-[#3E2723] mb-4">轻松熊王国最高法庭：正式开庭</h2>
             <p className="text-[#8D6E63] text-base mb-12 px-6 font-medium leading-relaxed">就是你们两个吵架了？肃静，和熊说说事情经过。</p>
-            
+                        
             {showRoleSelect ? (
                <div className="grid grid-cols-2 gap-6 animate-in slide-in-from-right">
                  <button onClick={() => createCase('male')} className="bg-blue-50 text-blue-700 p-8 rounded-[2rem] font-black text-xl border-2 border-blue-100 active:scale-95 transition shadow-sm hover:shadow-md">🙋‍♂️ 我是男方</button>
@@ -250,17 +270,18 @@ const App = () => {
           </div>
         ) : (
           <div className="space-y-6 animate-in fade-in">
-             <div className="bg-white p-6 rounded-[2rem] flex justify-between items-center shadow-sm border border-[#F5EBE0]">
+            
+            <div className="bg-white p-6 rounded-[2rem] flex justify-between items-center shadow-sm border border-[#F5EBE0]">
                 <div className="flex gap-4 items-center">
                    <ShieldCheck className="text-amber-500 bg-amber-50 p-3 rounded-2xl w-12 h-12" />
                    <div><div className="text-xs text-[#A1887F] font-bold uppercase tracking-wider">案卷号</div><div className="font-mono font-black text-2xl text-[#5D4037]">{caseId}</div></div>
                 </div>
                 <button onClick={() => navigator.clipboard.writeText(caseId)} className="bg-[#F5F5F5] p-3 rounded-xl text-[#8D6E63] hover:bg-[#EFEFEF] transition"><Copy size={20}/></button>
-             </div>
-
-             {!currentCase ? (
+            </div>
+            
+            {!currentCase ? (
                 <div className="p-32 text-center"><RefreshCw className="animate-spin mx-auto text-[#8D6E63] w-10 h-10" /></div>
-             ) : !verdictData ? (
+            ) : !verdictData ? (
                 <div className="bg-white p-8 rounded-[3rem] shadow-xl border border-[#F5EBE0] min-h-[500px] flex flex-col">
                    {(!userRole) ? (
                       <div className="flex-1 flex flex-col items-center justify-center text-center">
@@ -284,12 +305,12 @@ const App = () => {
                          <div className="text-7xl mb-8">🏛️</div>
                          <h3 className="font-black text-2xl mb-3 text-[#5D4037]">{isBothSubmitted ? '证据已收齐' : '正在采证中...'}</h3>
                          <p className="text-sm text-[#A1887F] mb-12">{isBothSubmitted ? '法庭肃静，请点击下方按钮开庭' : '请耐心等待对方提交证词...'}</p>
-                         
+                                                  
                          <div className="flex justify-center gap-6 w-full mb-12 px-8">
                             <div className={`flex-1 p-4 rounded-[2rem] border-2 flex flex-col items-center transition-all ${currentCase.sideA.submitted ? 'bg-blue-50 border-blue-200 text-blue-600 scale-105 shadow-sm' : 'bg-gray-50 border-gray-100 text-gray-300'}`}><CheckCircle2 size={24} /><span className="text-xs font-bold mt-2">男方</span></div>
                             <div className={`flex-1 p-4 rounded-[2rem] border-2 flex flex-col items-center transition-all ${currentCase.sideB.submitted ? 'bg-rose-50 border-rose-200 text-rose-600 scale-105 shadow-sm' : 'bg-gray-50 border-gray-100 text-gray-300'}`}><CheckCircle2 size={24} /><span className="text-xs font-bold mt-2">女方</span></div>
                          </div>
-
+                          
                          {isBothSubmitted && (
                             <button onClick={triggerAIJudge} disabled={loading || cooldown > 0} className={`w-full py-6 rounded-[2rem] font-black text-2xl shadow-xl flex items-center justify-center gap-3 text-white transition ${cooldown > 0 ? 'bg-gray-300' : 'bg-[#D84315] hover:bg-[#BF360C] animate-pulse'}`}>
                                {loading ? <RefreshCw className="animate-spin" /> : <Gavel size={28} />} {cooldown > 0 ? `${cooldown}s` : '开庭宣判'}
@@ -299,14 +320,14 @@ const App = () => {
                       </div>
                    )}
                 </div>
-             ) : (
+            ) : (
                 <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden border-t-[16px] border-[#8D6E63] animate-in slide-in-from-bottom duration-700">
                    <div className="p-10 text-center bg-[#FFFDFB]">
                       <div className="inline-block px-4 py-1.5 bg-amber-100 text-amber-800 rounded-full text-xs font-black tracking-widest mb-6">KINGDOM VERDICT</div>
                       <h2 className="text-3xl font-black text-[#3E2723] mb-4">📜 {verdictData.verdict_title}</h2>
-                      <p className="text-sm italic text-[#8D6E63] bg-[#F5EBE0] py-3 px-6 rounded-2xl inline-block">“{verdictData.law_reference}”</p>
+                      <p className="text-sm italic text-[#8D6E63] bg-[#F5EBE0] py-3 px-6 rounded-2xl inline-block">"{verdictData.law_reference}"</p>
                    </div>
-                   
+                                      
                    <div className="px-10 pb-10 space-y-8">
                       <div className="bg-gray-50 p-6 rounded-[2rem] border border-gray-100">
                          <div className="flex justify-between text-xs font-black mb-3 uppercase text-[#A1887F]"><span>责任归因比例</span></div>
@@ -331,7 +352,7 @@ const App = () => {
                       </div>
 
                       <div className="bg-amber-50 p-8 rounded-[2.5rem] text-center border border-amber-100">
-                         <div className="text-amber-900/60 font-black text-4xl mb-3">”</div>
+                         <div className="text-amber-900/60 font-black text-4xl mb-3">"</div>
                          <p className="text-amber-900 font-bold italic text-lg">{verdictData.bear_wisdom}</p>
                       </div>
 
@@ -345,7 +366,7 @@ const App = () => {
                       <button onClick={()=>{setCaseId('');setCurrentCase(null);}} className="w-full py-5 text-[#A1887F] text-xs font-black tracking-[0.2em] hover:text-[#5D4037] uppercase transition-colors">结案 · 拥抱离场</button>
                    </div>
                 </div>
-             )}
+            )}
           </div>
         )}
       </div>
