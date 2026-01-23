@@ -1,5 +1,5 @@
 /* ========================================================================
-   🐻 轻松熊王国最高法院 - v5.5.0 (移动端完美适配 + 智能API切换)
+   🐻 轻松熊王国最高法院 - v5.6.0 (UI 像素级对齐 + 智能API)
    ======================================================================== */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -22,14 +22,13 @@ const firebaseConfig = {
   appId: "1:422469568510:web:b3976df789af390724e2af"
 };
 
-// ⚠️【关键】本地测试用的 Key (只在 localhost 生效)
-// 上线 Vercel 后，系统会自动无视这个，改用环境变量，所以不用担心泄露
+// ⚠️ 本地调试 Key (只在 localhost 生效，线上会自动用环境变量)
 const LOCAL_TEST_KEY = "在这里粘贴你的DeepSeek_API_KEY";
 
 const APP_ID = 'bear-judge-app-v3';
 const STATS_DOC_ID = '--GLOBAL-STATS--';
 const FALLBACK_COVER = "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=800";
-const VERSION = "v5.2.0";
+const VERSION = "v5.6.0";
 
 let app, auth, db;
 if (firebaseConfig?.apiKey) {
@@ -202,7 +201,6 @@ const App = () => {
 
     try {
       let response;
-      // 🚀 智能判断：本地还是线上
       const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       
       if (isLocal && LOCAL_TEST_KEY.startsWith('sk-')) {
@@ -225,12 +223,10 @@ const App = () => {
           });
       }
 
-      if (!response.ok) throw new Error(`请求失败: ${response.status}`);
+      if (!response.ok) throw new Error(`API请求失败: ${response.status}`);
       const data = await response.json();
       
       let rawText = data.choices ? data.choices[0].message.content : (data.content || "");
-      if (!rawText && data.error) throw new Error(data.error);
-      
       rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
       const verdict = JSON.parse(rawText);
       
@@ -284,7 +280,6 @@ const App = () => {
   const isOpponentReady = userRole === 'A' ? !!currentCase?.sideB.uid : (userRole === 'B' ? !!currentCase?.sideA.uid : false);
 
   return (
-    // 🔥 UI 修复：使用 min-h-[100dvh] 适配手机地址栏
     <div className="min-h-[100dvh] bg-[#FFFDFB] text-[#4E342E] font-sans pt-20 pb-12 box-border"> 
       
       {error && (
@@ -367,11 +362,12 @@ const App = () => {
         )}
 
         {!caseId ? (
-          /* 🔥 UI 修复：使用 Flex 布局代替 Absolute，手机上不再重叠 */
+          /* 🔥 修正：使用 w-full + 固定高度 + flex 布局，确保上下两个按钮区域在视觉上完全等宽等高 */
           <div className="bg-white p-6 md:p-10 rounded-[2rem] md:rounded-[3rem] shadow-xl border border-[#F5EBE0] text-center flex flex-col min-h-[400px]">
             <div className="flex-1">
                 <Gavel className="mx-auto text-amber-500 mb-6 bg-amber-50 p-5 rounded-[2rem] w-24 h-24" />
-                <h2 className="text-2xl md:text-3xl font-black text-[#3E2723] mb-4">轻松熊王国最高法庭</h2>
+                <h2 className="text-2xl md:text-3xl font-black text-[#3E2723] mb-6">轻松熊王国最高法庭</h2>
+                
                 {showRoleSelect ? (
                    <div className="grid grid-cols-2 gap-4 md:gap-6">
                      <button onClick={() => createCase('plaintiff')} className="bg-blue-50 text-blue-700 p-4 md:p-8 rounded-[1.5rem] md:rounded-[2rem] font-black text-lg md:text-xl border-2 border-blue-100 flex flex-col items-center gap-3 active:scale-95 transition">
@@ -383,15 +379,17 @@ const App = () => {
                      <button onClick={() => setShowRoleSelect(false)} className="col-span-2 text-gray-400 text-sm font-bold py-4">返回</button>
                    </div>
                 ) : (
-                   <button onClick={() => setShowRoleSelect(true)} className="w-full bg-[#8D6E63] text-white py-5 md:py-6 rounded-[1.5rem] md:rounded-[2rem] font-black text-xl md:text-2xl shadow-xl mb-6 md:mb-8 flex justify-center gap-3 hover:bg-[#795548] transition"><UserPlus size={28} /> 发起新诉讼</button>
+                   /* 🔥 修复点 1：发起新诉讼按钮，使用 w-full 和固定高度 h-14/16 */
+                   <button onClick={() => setShowRoleSelect(true)} className="w-full h-14 md:h-16 bg-[#8D6E63] text-white rounded-[1.2rem] md:rounded-3xl font-black text-xl md:text-2xl shadow-xl mb-4 flex items-center justify-center gap-3 hover:bg-[#795548] transition active:scale-95"><UserPlus size={28} /> 发起新诉讼</button>
                 )}
-                 <div className="flex gap-3 h-14 md:h-16 mt-4">
-                    <input placeholder="输入案卷号" value={tempInput} className="flex-1 bg-[#FDF5E6] rounded-[1.2rem] md:rounded-3xl px-6 text-center font-black text-lg md:text-xl outline-none" onChange={e => setTempInput(e.target.value)} />
-                    <button onClick={() => joinCase(tempInput)} className="bg-white border-2 border-[#8D6E63] text-[#8D6E63] px-6 md:px-10 rounded-[1.2rem] md:rounded-3xl font-black text-lg md:text-xl hover:bg-[#FDF5E6] active:scale-95 transition">调取</button>
+                 
+                 {/* 🔥 修复点 2：输入行，同样使用 w-full 和固定高度 h-14/16，且中间有 gap */}
+                 <div className="flex gap-3 w-full h-14 md:h-16">
+                    <input placeholder="输入案卷号" value={tempInput} className="flex-1 bg-[#FDF5E6] rounded-[1.2rem] md:rounded-3xl px-6 text-center font-black text-lg md:text-xl outline-none border-2 border-transparent focus:border-[#8D6E63] min-w-0" onChange={e => setTempInput(e.target.value)} />
+                    <button onClick={() => joinCase(tempInput)} className="h-full bg-white border-2 border-[#8D6E63] text-[#8D6E63] px-6 md:px-8 rounded-[1.2rem] md:rounded-3xl font-black text-lg md:text-xl hover:bg-[#FDF5E6] active:scale-95 transition whitespace-nowrap shrink-0 flex items-center">调取</button>
                  </div>
             </div>
 
-             {/* 底部信息 (自然流动布局) */}
              <div className="mt-8 md:mt-12 flex flex-col items-center gap-4">
                  <div className="bg-[#FFF8E1] text-[#F57F17] px-4 py-2 rounded-full text-xs font-bold border border-[#FFE082] shadow-sm flex items-center gap-2 animate-pulse">
                      <Heart size={12} className="fill-[#F57F17]"/> 本庭案件审理好评率：{globalStats.rate}%
@@ -412,7 +410,6 @@ const App = () => {
             </div>
             
             {!currentCase ? <div className="p-32 text-center"><RefreshCw className="animate-spin mx-auto text-[#8D6E63]" size={40} /></div> : !verdictData ? (
-                /* 🔥 UI 修复：减小内边距，适配手机 */
                 <div className="bg-white p-6 md:p-8 rounded-[2rem] md:rounded-[3rem] shadow-xl border border-[#F5EBE0] min-h-[400px] flex flex-col">
                    {(!userRole) ? (
                       <div className="flex-1 flex flex-col items-center justify-center text-center">
@@ -468,7 +465,6 @@ const App = () => {
                       <p className="text-sm italic text-[#8D6E63] bg-[#F5EBE0] py-3 px-6 rounded-2xl inline-block">"{verdictData.law_reference}"</p>
                    </div>
                    <div className="px-6 md:px-10 pb-10 space-y-8">
-                      {/* 责任比例 */}
                       <div className="bg-gray-50 p-6 rounded-[2rem] border border-gray-100">
                          <div className="flex justify-between text-xs font-black mb-3 uppercase text-[#A1887F]">
                             <span>原告责任</span><span>被告责任</span>
@@ -483,7 +479,6 @@ const App = () => {
                          </div>
                       </div>
 
-                      {/* 深度分析 */}
                       <div>
                          <h4 className="font-black text-[#5D4037] flex gap-2 items-center text-base mb-3"><Sparkles size={20} className="text-amber-500"/> 深度诊断</h4>
                          <FormattedText text={verdictData.analysis} className="bg-[#FDFBF9] p-6 rounded-[2rem] border border-[#F5EBE0] text-[#5D4037]" />
@@ -498,7 +493,6 @@ const App = () => {
                          <p className="text-amber-900 font-bold italic text-lg font-serif">"{verdictData.bear_wisdom}"</p>
                       </div>
                       
-                      {/* 和好罚单 */}
                       {verdictData.punishments && (
                           <div className="bg-white border-2 border-dashed border-rose-200 p-6 rounded-[2rem]">
                               <h4 className="font-black text-rose-500 flex gap-2 items-center text-base mb-4"><Zap size={20}/> 和好罚单</h4>
@@ -513,7 +507,6 @@ const App = () => {
                           </div>
                       )}
 
-                      {/* 评价与异议 */}
                       <div className="pt-4 border-t border-[#F5EBE0]">
                           <div className="flex justify-between items-center mb-6 px-2">
                               <span className="text-xs md:text-sm font-bold text-[#A1887F]">对熊法官的判决满意吗？</span>
